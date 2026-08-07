@@ -1,0 +1,32 @@
+/target/
+/artifacts/
+/models/
+/cache/
+/downloads/
+*.wav
+*.tracy
+models.zip
+
+# Terraform local working directory and state.
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+*.tfplan
+*.tfplan.*
+*.tfvars
+*.tfvars.json
+*.auto.tfvars
+*.auto.tfvars.json
+crash.log
+crash.*.log
+
+# Local credentials and environment files.
+.env
+.env.*
+!.env.example
+
+# Personal deployment helpers; keep owner-specific 1Password references local.
+get-cloudflare-token.ps1
+infra/cloudflare/get-r2-s3-credentials.ps1
+infra/cloudflare/backend.hcl

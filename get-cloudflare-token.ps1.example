@@ -1,0 +1,32 @@
+<#
+.SYNOPSIS
+Loads a Cloudflare API token from a user-selected 1Password reference.
+
+Copy this file to get-cloudflare-token.ps1, set
+TEAMY_TTS_CLOUDFLARE_OP_REF, and dot-source the copy.
+#>
+
+$secretReference = $env:TEAMY_TTS_CLOUDFLARE_OP_REF
+if ([string]::IsNullOrWhiteSpace($secretReference)) {
+    throw "Set TEAMY_TTS_CLOUDFLARE_OP_REF before loading the Cloudflare token."
+}
+
+$opCommand = Get-Command op -ErrorAction SilentlyContinue
+if ($null -eq $opCommand) {
+    throw "The 1Password CLI ('op') is not available on PATH."
+}
+
+$tokenOutput = & $opCommand.Source read $secretReference
+if ($LASTEXITCODE -ne 0) {
+    throw "1Password could not read the configured Cloudflare token reference."
+}
+
+$cloudflareToken = ($tokenOutput -join "`n").Trim()
+if ([string]::IsNullOrWhiteSpace($cloudflareToken)) {
+    throw "1Password returned an empty Cloudflare token."
+}
+
+$env:CLOUDFLARE_API_TOKEN = $cloudflareToken
+Remove-Variable cloudflareToken -ErrorAction SilentlyContinue
+
+Write-Host "CLOUDFLARE_API_TOKEN loaded from 1Password for this PowerShell session."
