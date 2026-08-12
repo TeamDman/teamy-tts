@@ -1,0 +1,158 @@
+[package]
+name = "teamy-tts"
+version = "0.1.0"
+edition = "2024"
+authors = ["TeamDman"]
+description = "A local Rust/Burn GLaDOS text-to-speech CLI"
+license = "MPL-2.0"
+readme = "README.md"
+repository = "https://github.com/TeamDman/teamy-tts"
+keywords = ["cli", "text-to-speech", "tts", "burn"]
+categories = ["command-line-utilities"]
+documentation = "https://github.com/TeamDman/teamy-tts" # "https://docs.rs/crate/abc"
+
+[dependencies]
+arbitrary = { version = "1.4.1", features = ["derive"] }
+ash = { version = "0.38", optional = true, default-features = false, features = [
+    "debug",
+    "loaded",
+    "std",
+] }
+burn = { version = "0.19.0", default-features = false, features = [
+    "ndarray",
+    "std",
+    "store",
+    "record-item-custom-serde",
+] }
+burn-store = "0.19.1"
+chrono = "0.4"
+color-eyre = "0.6.5"
+eyre = "0.6.12"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", default-features = false, features = [
+    "ansi",
+    "env-filter",
+    "fmt",
+    "json",
+    "registry",
+] }
+tracing-tracy = { version = "0.11", optional = true, default-features = false, features = ["enable", "system-tracing", "context-switch-tracing", "sampling", "code-transfer", "callstack-inlines", "only-localhost"] }
+directories-next = "2"
+tokio = { version = "1.49.0", features = ["full"] }
+teamy-cancellation = { git = "https://github.com/TeamDman/teamy-cancellation.git", rev = "7c77848", features = ["figue", "arbitrary"] }
+facet = { git = "https://github.com/TeamDman/facet.git", rev = "23ad4dcd0", package = "facet", features = ["uuid", "compact_str", "chrono", "net"] }
+facet-csv = { git = "https://github.com/TeamDman/facet.git", rev = "23ad4dcd0", package = "facet-csv" }
+facet-json = { git = "https://github.com/TeamDman/facet.git", rev = "23ad4dcd0", package = "facet-json" }
+facet-pretty = { git = "https://github.com/TeamDman/facet.git", rev = "23ad4dcd0", package = "facet-pretty" }
+figue = { git = "https://github.com/TeamDman/facet.git", rev = "23ad4dcd0", package = "figue", features = ["arbitrary"] }
+futures-util = "0.3"
+open = "5"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+sha2 = "0.10"
+zip = { version = "6.0.0", default-features = false, features = ["deflate"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Win32_Globalization",
+    "Win32_Media_Audio",
+    "Win32_System_Console",
+] }
+
+[features]
+default = ["cuda"]
+cuda = ["burn/cuda"]
+burn-cuda-fused = ["burn/cuda", "burn/fusion", "burn/autotune"]
+burn-tch = ["burn/tch"]
+burn-wgpu = ["burn/wgpu", "burn/fusion", "burn/autotune"]
+burn-vulkan = ["burn/vulkan", "burn/fusion", "burn/autotune"]
+torchscript = []
+vulkan = ["dep:ash"]
+# Build every backend supported by the normal distribution toolchain. Keep
+# `burn-tch` opt-in because Burn 0.19's tch bridge requires a newer LibTorch
+# installation than the upstream TorchScript package currently provides.
+all-backends = [
+    "cuda",
+    "torchscript",
+    "vulkan",
+    "burn-wgpu",
+    "burn-vulkan",
+]
+extended_observability = []
+tracy = ["extended_observability", "dep:tracing-tracy"]
+
+# Burn's CPU tensor path is unusably slow at the default debug optimization
+# level. Optimize the development binary and its dependencies so `cargo run`
+# remains a useful local inference command; release remains the packaging
+# baseline.
+[profile.dev]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package."*"]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
+[build-dependencies]
+cc = "1.2.43"
+embed-resource = "3.0.6"
+sha2 = "0.10"
+
+# Burn 0.19.1's Vulkan feature requests cubecl-spirv 0.8.1, but that package
+# is not published to crates.io. Pin the matching upstream CubeCL tag, including
+# its shared crates, so the Burn Vulkan candidate remains buildable without
+# mixing CubeCL generations.
+[patch.crates-io]
+cubecl-common = { git = "https://github.com/tracel-ai/cubecl.git", tag = "v0.8.1" }
+cubecl-core = { git = "https://github.com/tracel-ai/cubecl.git", tag = "v0.8.1" }
+cubecl-ir = { git = "https://github.com/tracel-ai/cubecl.git", tag = "v0.8.1" }
+cubecl-macros = { git = "https://github.com/tracel-ai/cubecl.git", tag = "v0.8.1" }
+cubecl-macros-internal = { git = "https://github.com/tracel-ai/cubecl.git", tag = "v0.8.1" }
+cubecl-opt = { git = "https://github.com/tracel-ai/cubecl.git", tag = "v0.8.1" }
+cubecl-runtime = { git = "https://github.com/tracel-ai/cubecl.git", tag = "v0.8.1" }
+cubecl-spirv = { git = "https://github.com/tracel-ai/cubecl.git", tag = "v0.8.1" }
+
+[lints.rust]
+ambiguous_negative_literals = "warn"
+unfulfilled_lint_expectations = "deny"
+missing_debug_implementations = "warn"
+redundant_imports = "warn"
+redundant_lifetimes = "warn"
+trivial_numeric_casts = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+unused_lifetimes = "warn"
+
+[lints.clippy]
+cargo = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+correctness = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+multiple_crate_versions = "allow" # turn this off periodically to see how bad it has gotten :P
+# nursery = { level = "warn", priority = -1 }  # optional, might cause more false positives
+multiple_unsafe_ops_per_block = "deny"
+module_inception = "allow"
+allow_attributes = "deny"
+allow_attributes_without_reason = "warn"
+as_pointer_underscore = "warn"
+assertions_on_result_states = "warn"
+clone_on_ref_ptr = "warn"
+deref_by_slicing = "warn"
+disallowed_script_idents = "allow" # facet macros use Unicode identifiers
+empty_drop = "warn"
+empty_enum_variants_with_brackets = "warn"
+empty_structs_with_brackets = "warn"
+fn_to_numeric_cast_any = "warn"
+if_then_some_else_none = "warn"
+map_err_ignore = "warn"
+redundant_type_annotations = "warn"
+renamed_function_params = "warn"
+semicolon_outside_block = "warn"
+undocumented_unsafe_blocks = "warn"
+unnecessary_safety_comment = "warn"
+unnecessary_safety_doc = "warn"
+unneeded_field_pattern = "warn"
+unused_result_ok = "warn"

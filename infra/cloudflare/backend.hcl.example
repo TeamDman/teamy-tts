@@ -1,7 +1,0 @@
-# Copy this file to backend.hcl and fill in the private Azure Storage backend
-# details before running terraform init.
-subscription_id      = "<azure-subscription-id>"
-resource_group_name  = "<state-resource-group>"
-storage_account_name = "<state-storage-account>"
-container_name       = "statefiles"
-key                  = "teamy-tts/cloudflare.tfstate"

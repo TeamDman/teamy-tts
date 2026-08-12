@@ -1,0 +1,110 @@
+#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, binding = 0) readonly buffer InputWeights {
+    float values[];
+} input_weights;
+
+layout(std430, binding = 1) readonly buffer HiddenWeights {
+    float values[];
+} hidden_weights;
+
+layout(std430, binding = 2) readonly buffer InputBias {
+    float values[];
+} input_bias;
+
+layout(std430, binding = 3) readonly buffer HiddenBias {
+    float values[];
+} hidden_bias;
+
+layout(std430, binding = 4) readonly buffer Input {
+    float values[];
+} input_values;
+
+layout(std430, binding = 5) writeonly buffer Output {
+    float values[];
+} output_values;
+
+layout(push_constant) uniform Parameters {
+    uint input_channels;
+    uint hidden_channels;
+    uint sequence_length;
+    uint reverse;
+    uint reset_after;
+} parameters;
+
+const uint MAX_HIDDEN_CHANNELS = 512u;
+shared float hidden_state[MAX_HIDDEN_CHANNELS];
+shared float next_hidden_state[MAX_HIDDEN_CHANNELS];
+
+float sigmoid(float value) {
+    return 1.0 / (1.0 + exp(-value));
+}
+
+float gate_value(
+    uint gate,
+    uint hidden,
+    uint time,
+    float reset_value
+) {
+    uint input_offset = (gate * parameters.hidden_channels + hidden) * parameters.input_channels;
+    uint hidden_offset = (gate * parameters.hidden_channels + hidden) * parameters.hidden_channels;
+    float value = input_bias.values[gate * parameters.hidden_channels + hidden];
+    for (uint input_index = 0u; input_index < parameters.input_channels; ++input_index) {
+        value += input_weights.values[input_offset + input_index]
+            * input_values.values[input_index * parameters.sequence_length + time];
+    }
+    float hidden_product = 0.0;
+    for (uint previous = 0u; previous < parameters.hidden_channels; ++previous) {
+        hidden_product += hidden_weights.values[hidden_offset + previous]
+            * hidden_state[previous];
+    }
+    if (parameters.reset_after == 0u && gate == 2u) {
+        value = value + hidden_bias.values[gate * parameters.hidden_channels + hidden];
+        float reset_hidden_product = 0.0;
+        for (uint previous = 0u; previous < parameters.hidden_channels; ++previous) {
+            reset_hidden_product += hidden_weights.values[hidden_offset + previous]
+                * (reset_value * hidden_state[previous]);
+        }
+        value += reset_hidden_product;
+    } else {
+        if (parameters.reset_after != 0u && gate == 2u) {
+            value += reset_value * (hidden_product + hidden_bias.values[gate * parameters.hidden_channels + hidden]);
+        } else {
+            value += hidden_product + hidden_bias.values[gate * parameters.hidden_channels + hidden];
+        }
+    }
+    return value;
+}
+
+void main() {
+    uint lane = gl_LocalInvocationID.x;
+    if (parameters.hidden_channels > MAX_HIDDEN_CHANNELS) {
+        return;
+    }
+    for (uint hidden = lane; hidden < parameters.hidden_channels; hidden += 256u) {
+        hidden_state[hidden] = 0.0;
+    }
+    barrier();
+
+    for (uint step = 0u; step < parameters.sequence_length; ++step) {
+        uint time = parameters.reverse == 0u
+            ? step
+            : parameters.sequence_length - 1u - step;
+        for (uint hidden = lane; hidden < parameters.hidden_channels; hidden += 256u) {
+            float update = sigmoid(gate_value(0u, hidden, time, 0.0));
+            float reset = sigmoid(gate_value(1u, hidden, time, 0.0));
+            float candidate = tanh(gate_value(2u, hidden, time, reset));
+            next_hidden_state[hidden] = candidate * (1.0 - update)
+                + update * hidden_state[hidden];
+        }
+        barrier();
+        for (uint hidden = lane; hidden < parameters.hidden_channels; hidden += 256u) {
+            hidden_state[hidden] = next_hidden_state[hidden];
+            output_values.values[hidden * parameters.sequence_length + time] =
+                next_hidden_state[hidden];
+        }
+        barrier();
+    }
+}

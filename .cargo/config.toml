@@ -1,0 +1,4 @@
+[env]
+# cudarc 0.17.8 has no 13.3 match yet. CUDA 13.0 is ABI-compatible with the
+# installed 13.3 toolkit and keeps the supported kernel-selection path.
+CUDARC_CUDA_VERSION = "13000"

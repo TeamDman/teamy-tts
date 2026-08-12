@@ -1,0 +1,48 @@
+#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform ElementwiseParams {
+    uint element_count;
+    uint operation;
+    float scalar;
+} params;
+
+layout(std430, binding = 0) readonly buffer ElementwiseInputA {
+    float values[];
+} input_a;
+
+layout(std430, binding = 1) readonly buffer ElementwiseInputB {
+    float values[];
+} input_b;
+
+layout(std430, binding = 2) writeonly buffer ElementwiseOutput {
+    float values[];
+} output_values;
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    if (index >= params.element_count) {
+        return;
+    }
+
+    float value = input_a.values[index];
+    if (params.operation == 0u) {
+        value = value < 0.0 ? value * params.scalar : value;
+    } else if (params.operation == 1u) {
+        value += input_b.values[index];
+    } else if (params.operation == 2u) {
+        value *= params.scalar;
+    } else if (params.operation == 3u) {
+        value = tanh(value);
+    } else if (params.operation == 4u) {
+        value *= input_b.values[index];
+    } else if (params.operation == 5u) {
+        value = 1.0 - value;
+    } else if (params.operation == 6u) {
+        value = max(value, 0.0);
+    } else if (params.operation == 7u) {
+        value = 1.0 / (1.0 + exp(-value));
+    }
+    output_values.values[index] = value;
+}

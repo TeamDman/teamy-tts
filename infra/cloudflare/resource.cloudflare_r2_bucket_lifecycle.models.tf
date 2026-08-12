@@ -2,7 +2,7 @@
 # Cloudflare's native R2 API because the S3-compatible lifecycle call can hang
 # against R2 even though object upload succeeds.
 resource "cloudflare_r2_bucket_lifecycle" "models" {
-  account_id  = var.cloudflare_account_id
+  account_id  = "fcdcf78a5f4ff76266c9c6cfb664d01d"
   bucket_name = "teamy-tts-models"
 
   rules = [{

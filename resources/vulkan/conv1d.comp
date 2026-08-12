@@ -1,0 +1,59 @@
+#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform Conv1dParams {
+    uint input_channels;
+    uint input_length;
+    uint output_channels;
+    uint output_length;
+    uint kernel_size;
+    uint stride;
+    uint dilation;
+    uint padding_left;
+    uint has_bias;
+    uint activation;
+} params;
+
+layout(std430, binding = 0) readonly buffer ConvWeights {
+    float values[];
+} weights;
+
+layout(std430, binding = 1) readonly buffer ConvBias {
+    float values[];
+} bias;
+
+layout(std430, binding = 2) readonly buffer ConvInput {
+    float values[];
+} input_values;
+
+layout(std430, binding = 3) writeonly buffer ConvOutput {
+    float values[];
+} output_values;
+
+void main() {
+    uint linear_index = gl_GlobalInvocationID.x;
+    uint output_count = params.output_channels * params.output_length;
+    if (linear_index >= output_count) {
+        return;
+    }
+
+    uint output_channel = linear_index / params.output_length;
+    uint output_position = linear_index % params.output_length;
+    float value = params.has_bias == 0u ? 0.0 : bias.values[output_channel];
+    for (uint input_channel = 0u; input_channel < params.input_channels; ++input_channel) {
+        for (uint kernel_position = 0u; kernel_position < params.kernel_size; ++kernel_position) {
+            int input_position = int(output_position * params.stride)
+                + int(kernel_position * params.dilation)
+                - int(params.padding_left);
+            if (input_position < 0 || uint(input_position) >= params.input_length) {
+                continue;
+            }
+            uint input_index = input_channel * params.input_length + uint(input_position);
+            uint weight_index = (output_channel * params.input_channels + input_channel)
+                * params.kernel_size + kernel_position;
+            value += input_values.values[input_index] * weights.values[weight_index];
+        }
+    }
+    output_values.values[linear_index] = params.activation == 0u ? value : max(value, 0.0);
+}

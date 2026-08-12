@@ -3,12 +3,14 @@
 /models/
 /cache/
 /downloads/
+/tracy/
 *.wav
 *.tracy
 models.zip
+__pycache__/
 
 # Terraform local working directory and state.
-.terraform/
+infra/cloudflare/.terraform/
 *.tfstate
 *.tfstate.*
 .terraform.tfstate.lock.info
@@ -25,8 +27,3 @@ crash.*.log
 .env
 .env.*
 !.env.example
-
-# Personal deployment helpers; keep owner-specific 1Password references local.
-get-cloudflare-token.ps1
-infra/cloudflare/get-r2-s3-credentials.ps1
-infra/cloudflare/backend.hcl

@@ -1,0 +1,46 @@
+#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform Parameters {
+    uint channels;
+    uint sequence_length;
+    float epsilon;
+} parameters;
+
+layout(std430, binding = 0) readonly buffer Gamma {
+    float values[];
+} gamma_values;
+
+layout(std430, binding = 1) readonly buffer Beta {
+    float values[];
+} beta_values;
+
+layout(std430, binding = 2) readonly buffer RunningMean {
+    float values[];
+} running_mean;
+
+layout(std430, binding = 3) readonly buffer RunningVariance {
+    float values[];
+} running_variance;
+
+layout(std430, binding = 4) readonly buffer Input {
+    float values[];
+} input_values;
+
+layout(std430, binding = 5) writeonly buffer Output {
+    float values[];
+} output_values;
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    uint element_count = parameters.channels * parameters.sequence_length;
+    if (index >= element_count) {
+        return;
+    }
+    uint channel = index / parameters.sequence_length;
+    float normalized = (input_values.values[index] - running_mean.values[channel])
+        / sqrt(running_variance.values[channel] + parameters.epsilon);
+    output_values.values[index] = normalized * gamma_values.values[channel]
+        + beta_values.values[channel];
+}

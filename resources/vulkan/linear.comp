@@ -1,0 +1,43 @@
+#version 450
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer Weights {
+    float values[];
+} weights;
+
+layout(set = 0, binding = 1, std430) readonly buffer Bias {
+    float values[];
+} bias;
+
+layout(set = 0, binding = 2, std430) readonly buffer Input {
+    float values[];
+} input_values;
+
+layout(set = 0, binding = 3, std430) writeonly buffer Output {
+    float values[];
+} output_values;
+
+layout(push_constant) uniform Parameters {
+    uint input_channels;
+    uint sequence_length;
+    uint output_channels;
+    uint has_bias;
+} parameters;
+
+void main() {
+    uint output_index = gl_GlobalInvocationID.x;
+    uint output_count = parameters.output_channels * parameters.sequence_length;
+    if (output_index >= output_count) {
+        return;
+    }
+
+    uint output_channel = output_index / parameters.sequence_length;
+    uint sequence_index = output_index % parameters.sequence_length;
+    float value = parameters.has_bias == 0u ? 0.0 : bias.values[output_channel];
+    for (uint input_channel = 0u; input_channel < parameters.input_channels; ++input_channel) {
+        value += weights.values[output_channel * parameters.input_channels + input_channel]
+            * input_values.values[input_channel * parameters.sequence_length + sequence_index];
+    }
+    output_values.values[output_index] = value;
+}
