@@ -15,9 +15,9 @@ if (-not (Test-Path -LiteralPath $source -PathType Container)) {
 }
 
 $required = @(
-    'acoustic-model.bpk',
-    'vocoder.bpk',
-    'phonemizer.bpk',
+    'glados-new.pt',
+    'vocoder-gpu.pt',
+    'glados-phonemizer.pt',
     'frontend.tsv',
     'voice-p1.f32le',
     'voice-p2.f32le'

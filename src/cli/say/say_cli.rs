@@ -40,8 +40,7 @@ pub struct SayArgs {
     #[arbitrary(default)]
     pub alpha: Option<f32>,
 
-    /// Inference backend: auto, burn, burn-ndarray, burn-cuda-acoustic,
-    /// burn-cuda-fused, burn-tch, burn-wgpu, burn-vulkan, libtorch, or vulkan.
+    /// Compatibility selector for the only inference backend: tch/LibTorch.
     #[facet(args::named)]
     #[arbitrary(default)]
     pub backend: Option<String>,
@@ -81,8 +80,7 @@ pub struct WriteArgs {
     #[arbitrary(default)]
     pub alpha: Option<f32>,
 
-    /// Inference backend: auto, burn, burn-ndarray, burn-cuda-acoustic,
-    /// burn-cuda-fused, burn-tch, burn-wgpu, burn-vulkan, libtorch, or vulkan.
+    /// Compatibility selector for the only inference backend: tch/LibTorch.
     #[facet(args::named)]
     #[arbitrary(default)]
     pub backend: Option<String>,
@@ -161,7 +159,7 @@ pub(crate) fn load_runtime(
     model_id: &str,
     backend: Option<&str>,
 ) -> Result<(model_registry::ModelDefinition, GladosRuntime)> {
-    let backend = crate::config::effective_backend(backend)?;
+    crate::config::effective_backend(backend)?;
     let Some(model) = model_registry::find_model(model_id) else {
         bail!("unknown model {model_id:?}; known models: glados");
     };
@@ -174,7 +172,12 @@ pub(crate) fn load_runtime(
             model_preparation_hint(model)
         )
     })?;
-    let runtime = GladosRuntime::from_prepared(&prepared, backend)?;
+    let Some(model_dir) = crate::config::effective_torch_model_dir()? else {
+        bail!(
+            "tch/LibTorch model directory is not configured; set it once with `teamy-tts config set --torch-model-dir <path>`"
+        );
+    };
+    let runtime = GladosRuntime::from_prepared(&prepared, &model_dir)?;
     tracing::info!(
         backend = %runtime.backend_kind(),
         elapsed_ms = started.elapsed().as_millis(),

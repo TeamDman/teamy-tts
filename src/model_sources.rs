@@ -20,7 +20,7 @@ pub const R2D2FISH_ONEDRIVE_NATIVE_SOURCE_URL_ENV_VAR: &str =
     "TEAMY_TTS_R2D2FISH_ONEDRIVE_NATIVE_SOURCE_URL";
 
 const TEAMY_RAW_SOURCE_URL: &str = "https://pub-efc9d45264d54fffb27e33d408633ea8.r2.dev/raw/glados/afb60dd8944934ea5c67bd85de70f424c151b5f41b50dc039578716364fa68c4/models.zip";
-const TEAMY_NATIVE_SOURCE_URL: &str = "https://pub-efc9d45264d54fffb27e33d408633ea8.r2.dev/native/glados/ab663a68fb5263b8df49f76b80812ba2692b5d1a0234a246528d65d89fd2f81f/native-bundle.zip";
+const TEAMY_NATIVE_SOURCE_URL: &str = "https://pub-efc9d45264d54fffb27e33d408633ea8.r2.dev/native/glados/5fc80b76584ef7c078a417fb53e09fa8477b211e26458ad1ee8f4a25cf626e0f/native-bundle.zip";
 
 #[derive(Clone, Copy, Debug)]
 struct SourceDefinition {

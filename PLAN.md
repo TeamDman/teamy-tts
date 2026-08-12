@@ -1,27 +1,17 @@
 # teamy-tts implementation plan
 
-Status: multi-backend, Burn candidate-matrix, and remembered-runtime-configuration milestones complete;
-the pure-Rust frontend, acoustic/vocoder runtime, native bundle
-acquisition/installation path, output UX, profileable backend contract, and
-installed all-backends bootstrap are working. Burn and Python-free LibTorch are
-working candidates. The optional Vulkan path now owns the fixed-shape acoustic
-continuation from condition projections through the CBHG postnet, post
-projection, and complete HiFi-GAN vocoder; the predictor/prenet prefix remains
-Burn-backed. Candidate packaging and benchmark evidence are complete; upstream-
-class full-Vulkan performance remains follow-up work. Burn WGPU and Burn
-Vulkan are measured; Burn tch is now compiled and measured with an isolated
-LibTorch 2.9 toolchain, but its output-shape mismatch keeps it out of
-correctness-gated automatic selection. Long-form Burn diagnostics, the first
-packed-gate recurrent optimization, the fused duration-shape fix, and the
-first backend-native CUDA `CubeCL` LSTM kernel are now validated.
+Status: the backend-comparison checkpoint is preserved, while `main` is being
+reshaped into a single tch/LibTorch runtime. The direct Rust `tch::CModule`
+runtime now compiles against tch 0.24/LibTorch 2.11, detects the RTX 4090, and
+has a provisional correctness-gated warm benchmark receipt. Model-bundle
+rehosting and a clean-machine distribution rehearsal remain open.
 Plan owner: Teamy
 Plan path: G:\Programming\Repos\teamy-tts\PLAN.md
 Last updated: 2026-08-12
-Current focus: [x] complete the profileable Burn/LibTorch/Vulkan candidate,
-Burn candidate-matrix, remembered-runtime-configuration, and first fused CUDA
-recurrent-kernel milestones; [~] pin the final single-backend Torch/CUDA
-toolchain before removing comparison implementations; [!] Burn-tch output-shape
-parity and WGPU/Burn-Vulkan performance are comparison-only follow-up work.
+Current focus: [x] preserve the historical backend comparison; [x] remove
+non-tch code and migrate the prepared bundle to TorchScript artifacts; [x] pin
+the final single-backend Torch/CUDA toolchain; [~] repeat the benchmark after
+rehosting the new bundle and complete a clean-machine distribution rehearsal.
 
 **Plan status:** Active
 **Primary implementation root:** `G:\Programming\Repos\teamy-tts`
@@ -30,8 +20,9 @@ selection, and Vulkan hybrid milestone; the full Vulkan acoustic boundary and
 performance decision remain explicitly open.
 
 This is the living work contract for turning the local GLaDOS TTS upstream
-project into a downloadable Rust command-line application with pluggable
-inference backends.
+project into a downloadable Rust command-line application with one optimized
+native Torch inference path. The historical comparison work remains available
+on `backend-comparison` but is not a `main` product dependency.
 
 ## Plan rules
 
@@ -115,7 +106,9 @@ inference backends.
 | T25 | Keep a representative long-form benchmark workload that records warm latency, model-load latency, output duration, real-time factor, and recurrent output frame counts without weakening the correctness-gated automatic-selection corpus. | Confirmed; `glados-long-v1` is diagnostic-only when `--skip-correctness` is used | W22, A25 |
 | T26 | Optimize Burn recurrent inference by packing compatible gate projections while preserving the serialized Burn module layout and generic backend fallback. | Confirmed checkpoint; packed bidirectional GRU and LSTM pass the short waveform gate; kernel-level fusion remains open | W22, A26 |
 | T27 | Add the first backend-native fused Burn recurrent kernel without changing Burnpack artifacts or weakening portable fallback behavior. | Confirmed; plain CUDA uses a specialized `CubeCL` bidirectional LSTM kernel, while fused/all-backends builds retain the packed fallback | W22, A27 |
-| T28 | Freeze the final single-backend native Torch toolchain before cleanup: exact `tch`/`torch-sys`, LibTorch/PyTorch, CUDA toolkit, compiler, and runtime packaging versions; do not upgrade Burn because it is comparison-only. | In progress; selected target is the latest published `tch`/`torch-sys` 0.24.0 family with matching LibTorch 2.11.x, even though PyTorch 2.13 is newer | W25, A28 |
+| T28 | Freeze the final single-backend native Torch toolchain before cleanup: exact `tch`/`torch-sys`, LibTorch/PyTorch, CUDA toolkit, compiler, and runtime packaging versions; do not upgrade Burn because it is comparison-only. | Confirmed; `tch`/`torch-sys` 0.24.0 + LibTorch 2.11.0+cu128, MSVC, and the Windows CUDA-link workaround are validated on the RTX 4090 | W25, A28 |
+| T29 | Remove non-tch backend implementations from `main`, migrate the prepared bundle to TorchScript artifacts, and provide one benchmark command for the remaining runtime. | Confirmed in source; the historical implementations remain on `backend-comparison` | W26, A29 |
+| T30 | Rehost the tch-native bundle and rehearse the installed executable from a clean machine/PATH. | Pending deployment; archive and Terraform source path are prepared, but Cloudflare publication has not been applied in this slice | W27, A30 |
 
 ## Evidence inspected
 
@@ -1563,7 +1556,7 @@ Completed 2026-08-06. Checked that the plan does not:
 - treat an R2 object ETag as the archive's SHA-256;
 - publish models.zip before the source/license decision is recorded.
 
-#### W25 [~] Pin the final native Torch/CUDA toolchain
+#### W25 [x] Pin the final native Torch/CUDA toolchain
 
 Work: Build a small compatibility probe for the selected latest published
 `tch`/`torch-sys` 0.24.0 family and matching LibTorch 2.11.x runtime, then
@@ -1579,22 +1572,40 @@ waveform correctness receipt, and produce a warm long-form RTX 4090 benchmark.
 Do not advance to PyTorch 2.13 or an unreleased `tch-rs` revision as part of
 this slice.
 
-Evidence: [DEPENDENCIES.md](DEPENDENCIES.md).
+Evidence: [DEPENDENCIES.md](DEPENDENCIES.md). The final pair compiles and the
+CUDA-link anchor makes `tch::Cuda::is_available()` report one RTX 4090 device.
+The short receipt is 53 ms median / 56 ms p95 after two warmups, with 2,548 ms
+model load and 26,880 generated samples.
+
+#### W26 [x] Reshape `main` into the single tch runtime
+
+Work completed: Removed Burn, CubeCL, Ash/Vulkan, WGPU, backend-comparison CLI,
+handwritten TorchScript bridge, and obsolete Burn conversion/verification
+examples from `main`. Replaced the runtime with direct Rust `tch::CModule` and
+`tch::IValue` loading, kept the frontend model in `tch::nn`, added the
+Windows-only CUDA import anchor, and changed the native bundle contract to
+`glados-new.pt`, `vocoder-gpu.pt`, `glados-phonemizer.pt`, `frontend.tsv`, and
+the two voice embeddings. The new `benchmark` command emits cold-load and
+warm-latency JSON evidence.
+
+Validation: `cargo check --all-targets`, `cargo test --all-targets`, model
+preparation, and the RTX 4090 benchmark pass with LibTorch 2.11.0+cu128 on the
+MSVC toolchain. The generated tch-native archive is
+`5fc80b76584ef7c078a417fb53e09fa8477b211e26458ad1ee8f4a25cf626e0f` and is
+ready for the next Cloudflare publication step.
 
 ## Next safe implementation slice
 
-1. Provision the matching LibTorch 2.11.x CUDA package and run the W25 probe
-   with published `tch`/`torch-sys` 0.24.0.
-2. Record the exact LibTorch archive, CUDA variant, compiler settings, and
-   runtime DLL packaging in `DEPENDENCIES.md` and the build scripts.
-3. Rehearse the final release package from a clean `PATH`, then preserve the
-   receipt and package evidence alongside the selected source revision.
-4. Only after W25 passes, remove comparison-only backend selection, receipts,
-   Burn/CubeCL/Ash comparison code, and the obsolete direct 2.0.1 bridge in
-   deliberate slices. Keep only the native `tch` runtime and any same-runtime
-   custom operators that prove necessary.
-5. Keep model acquisition, source manifests, and release evidence synchronized
-   with the new native Torch runtime and its redistributed libraries.
+1. Apply Terraform to publish the tch-native archive at the new content-
+   addressed Teamy R2 URL, then run `model acquire-prepared Teamy` from a
+   clean cache.
+2. Rehearse the final release package from a clean `PATH`, verify the copied
+   LibTorch DLL set, and preserve the receipt alongside the selected source
+   revision.
+3. Remove the transitional `--backend`/stored backend compatibility spelling
+   if no downstream script needs it; the runtime already has one implementation.
+4. Repeat the short and long benchmark after acquisition from the public bundle
+   and record the clean-machine result.
 
 Do not begin by manually rewriting every neural layer. First freeze the
 reference tensors, model variants, frontend behavior, and artifact provenance.

@@ -7,8 +7,8 @@ const GLADOS_ARCHIVE_SHA256: &str =
     "afb60dd8944934ea5c67bd85de70f424c151b5f41b50dc039578716364fa68c4";
 const GLADOS_ARCHIVE_SIZE_BYTES: u64 = 343_345_374;
 const GLADOS_NATIVE_BUNDLE_SHA256: &str =
-    "ab663a68fb5263b8df49f76b80812ba2692b5d1a0234a246528d65d89fd2f81f";
-const GLADOS_NATIVE_BUNDLE_SIZE_BYTES: u64 = 216_879_847;
+    "5fc80b76584ef7c078a417fb53e09fa8477b211e26458ad1ee8f4a25cf626e0f";
+const GLADOS_NATIVE_BUNDLE_SIZE_BYTES: u64 = 217_016_604;
 
 /// A model known to the teamy-tts catalog.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -3,31 +3,17 @@ name = "teamy-tts"
 version = "0.1.0"
 edition = "2024"
 authors = ["TeamDman"]
-description = "A local Rust/Burn GLaDOS text-to-speech CLI"
+description = "A local Rust tch/LibTorch GLaDOS text-to-speech CLI"
 license = "MPL-2.0"
 readme = "README.md"
 repository = "https://github.com/TeamDman/teamy-tts"
-keywords = ["cli", "text-to-speech", "tts", "burn"]
+keywords = ["cli", "text-to-speech", "tts", "libtorch"]
 categories = ["command-line-utilities"]
 documentation = "https://github.com/TeamDman/teamy-tts" # "https://docs.rs/crate/abc"
 
 [dependencies]
 arbitrary = { version = "1.4.1", features = ["derive"] }
-ash = { version = "0.38", optional = true, default-features = false, features = [
-    "debug",
-    "loaded",
-    "std",
-] }
-burn = { version = "0.19.0", default-features = false, features = [
-    "ndarray",
-    "std",
-    "store",
-    "record-item-custom-serde",
-] }
-burn-cubecl = { version = "0.19.0", optional = true, default-features = false, features = ["std"] }
-cubecl = { version = "0.8.1", optional = true, default-features = false, features = ["cuda", "std", "stdlib"] }
-"tch" = { version = "0.22.0", optional = true }
-burn-store = "0.19.1"
+"tch" = { version = "0.24.0", optional = true }
 chrono = "0.4"
 color-eyre = "0.6.5"
 eyre = "0.6.12"
@@ -62,24 +48,8 @@ windows = { version = "0.62.2", features = [
 ] }
 
 [features]
-default = ["cuda"]
-cuda = ["burn/cuda", "burn/cubecl", "dep:burn-cubecl", "dep:cubecl"]
-burn-cuda-fused = ["burn/cuda", "burn/fusion", "burn/autotune"]
-burn-tch = ["burn/tch", "dep:tch"]
-burn-wgpu = ["burn/wgpu", "burn/fusion", "burn/autotune"]
-burn-vulkan = ["burn/vulkan", "burn/fusion", "burn/autotune"]
-torchscript = []
-vulkan = ["dep:ash"]
-# Build every backend supported by the normal distribution toolchain. Keep
-# `burn-tch` opt-in because Burn 0.19's tch bridge requires a newer LibTorch
-# installation than the upstream TorchScript package currently provides.
-all-backends = [
-    "cuda",
-    "torchscript",
-    "vulkan",
-    "burn-wgpu",
-    "burn-vulkan",
-]
+default = ["tch-native"]
+tch-native = ["dep:tch"]
 extended_observability = []
 tracy = ["extended_observability", "dep:tracing-tracy"]
 
@@ -98,24 +68,9 @@ debug-assertions = false
 overflow-checks = false
 
 [build-dependencies]
-cc = "1.2.43"
+cc = "1.2"
 embed-resource = "3.0.6"
 sha2 = "0.10"
-
-# Burn 0.19.1's Vulkan feature requests cubecl-spirv 0.8.1, but that package
-# is not published to crates.io. Pin the matching upstream CubeCL tag, including
-# its shared crates, so the Burn Vulkan candidate remains buildable without
-# mixing CubeCL generations.
-[patch.crates-io]
-cubecl-common = { git = "https://github.com/tracel-ai/cubecl.git", tag = "v0.8.1" }
-cubecl-core = { git = "https://github.com/tracel-ai/cubecl.git", tag = "v0.8.1" }
-cubecl-ir = { git = "https://github.com/tracel-ai/cubecl.git", tag = "v0.8.1" }
-cubecl-macros = { git = "https://github.com/tracel-ai/cubecl.git", tag = "v0.8.1" }
-cubecl-macros-internal = { git = "https://github.com/tracel-ai/cubecl.git", tag = "v0.8.1" }
-cubecl-opt = { git = "https://github.com/tracel-ai/cubecl.git", tag = "v0.8.1" }
-cubecl-runtime = { git = "https://github.com/tracel-ai/cubecl.git", tag = "v0.8.1" }
-cubecl-spirv = { git = "https://github.com/tracel-ai/cubecl.git", tag = "v0.8.1" }
-
 [lints.rust]
 ambiguous_negative_literals = "warn"
 unfulfilled_lint_expectations = "deny"

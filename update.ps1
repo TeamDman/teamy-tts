@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
-    # LIBTORCH is needed only while compiling the optional native bridge. The
-    # runtime DLLs are copied beside the installed executable below.
+    # LIBTORCH is needed while compiling tch's native bindings. The runtime
+    # DLLs are copied beside the installed executable below. Use the exact
+    # LibTorch release paired with the tch version pinned in Cargo.toml.
     [string]$LibTorchRoot = $env:LIBTORCH,
 
     # This value is written to teamy-tts config.json once; it is not required
@@ -17,12 +18,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 if ([string]::IsNullOrWhiteSpace($LibTorchRoot)) {
-    $knownLibTorchRoot = 'G:\ml\glados-tts-upstream\.venv\Lib\site-packages\torch'
-    if (Test-Path -LiteralPath $knownLibTorchRoot -PathType Container) {
-        $LibTorchRoot = $knownLibTorchRoot
-    } else {
-        throw "LibTorch is required for the all-backends build. Pass -LibTorchRoot <path> or set LIBTORCH for this installation."
-    }
+    throw "LibTorch is required for the tch build. Pass -LibTorchRoot <path> or set LIBTORCH to the matching tch/LibTorch release."
 }
 
 $resolvedLibTorchRoot = (Resolve-Path -LiteralPath $LibTorchRoot).Path
@@ -31,7 +27,7 @@ if (-not (Test-Path -LiteralPath $libTorchLibDir -PathType Container)) {
     throw "LibTorch lib directory is missing: $libTorchLibDir"
 }
 
-# build.rs consumes LIBTORCH while compiling the C++ bridge. This assignment is
+# tch's build script consumes LIBTORCH while compiling its native bindings. This assignment is
 # scoped to this PowerShell process and is intentionally not a persistent user
 # environment-variable mutation.
 $env:LIBTORCH = $resolvedLibTorchRoot
@@ -51,8 +47,6 @@ $cargoArguments = @(
     $resolvedCargoRoot
     '--locked'
     '--force'
-    '--features'
-    'all-backends'
 )
 & cargo @cargoArguments
 if ($LASTEXITCODE -ne 0) {
@@ -92,7 +86,7 @@ if (-not [string]::IsNullOrWhiteSpace($TorchModelDir)) {
     }
 }
 
-Write-Output "Installed all-backends teamy-tts at $installedExecutable"
+Write-Output "Installed tch/LibTorch teamy-tts at $installedExecutable"
 Write-Output "Copied $($runtimeDlls.Count) LibTorch runtime DLLs beside the executable"
 if (-not [string]::IsNullOrWhiteSpace($TorchModelDir)) {
     Write-Output "Remembered TorchScript model directory: $resolvedTorchModelDir"

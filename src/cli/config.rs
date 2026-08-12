@@ -41,8 +41,7 @@ pub struct ConfigShowArgs;
 #[derive(Facet, Arbitrary, Debug, PartialEq)]
 #[facet(rename_all = "kebab-case")]
 pub struct ConfigSetArgs {
-    /// Backend policy: auto, burn, burn-ndarray, burn-cuda-acoustic,
-    /// burn-cuda-fused, burn-tch, burn-wgpu, burn-vulkan, libtorch, or vulkan.
+    /// Compatibility backend spelling: tch, torchscript, or libtorch.
     #[facet(args::named)]
     #[arbitrary(default)]
     pub backend: Option<String>,

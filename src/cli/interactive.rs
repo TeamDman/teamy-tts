@@ -38,8 +38,7 @@ pub struct InteractiveArgs {
     #[arbitrary(default)]
     pub alpha: Option<f32>,
 
-    /// Inference backend: auto, burn, burn-ndarray, burn-cuda-acoustic,
-    /// burn-cuda-fused, burn-tch, burn-wgpu, burn-vulkan, libtorch, or vulkan.
+    /// Compatibility selector for the only inference backend: tch/LibTorch.
     #[facet(args::named)]
     #[arbitrary(default)]
     pub backend: Option<String>,

@@ -1,4 +1,4 @@
-pub mod backend;
+pub mod benchmark;
 pub mod cache;
 pub mod config;
 pub mod facet_shape;
@@ -9,7 +9,7 @@ pub mod model;
 pub mod output;
 pub mod say;
 
-use crate::cli::backend::BackendArgs;
+use crate::cli::benchmark::BenchmarkArgs;
 use crate::cli::cache::CacheArgs;
 use crate::cli::config::ConfigArgs;
 use crate::cli::global_args::GlobalArgs;
@@ -126,12 +126,13 @@ mod tests {
         let model = model_registry::find_model("glados").expect("catalog should contain glados");
         let hint = model_preparation_hint(model);
 
-        assert!(hint.contains("model prepare glados"));
         let native_bundle_is_cached = model_registry::native_bundle_archive_path(model).is_file()
             && model_registry::native_bundle_acquisition_receipt_path(model).is_file();
         if native_bundle_is_cached {
+            assert!(hint.contains("model prepare glados"));
             assert!(!hint.contains("model acquire-prepared Teamy"));
         } else {
+            assert!(!hint.contains("model prepare glados"));
             assert!(hint.contains("model acquire-prepared Teamy"));
         }
     }
@@ -141,12 +142,12 @@ mod tests {
 #[derive(Facet, Arbitrary, Debug, PartialEq)]
 #[repr(u8)]
 pub enum Command {
-    /// Backend discovery, benchmarking, and selection commands.
-    Backend(BackendArgs),
     /// Synthesize text, write a WAV file, and play it.
     Say(SayArgs),
     /// Synthesize text into a WAV file without playing it.
     Write(WriteArgs),
+    /// Measure cold-load and warm synthesis latency.
+    Benchmark(BenchmarkArgs),
     /// Read stdin lines, write each WAV file, and play each one.
     Interactive(InteractiveArgs),
     /// Cache-related commands.
@@ -166,9 +167,9 @@ impl Command {
     pub async fn invoke(self, cancellation_token: CancellationToken) -> eyre::Result<CliOutput> {
         cancellation_token.bail_if_cancelled()?;
         match self {
-            Command::Backend(args) => args.invoke().await,
             Command::Say(args) => args.invoke().await,
             Command::Write(args) => args.invoke().await,
+            Command::Benchmark(args) => args.invoke().await,
             Command::Interactive(args) => args.invoke(cancellation_token).await,
             Command::Cache(args) => args.invoke().await,
             Command::Config(args) => args.invoke().await,

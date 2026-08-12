@@ -1,10 +1,11 @@
 # Final single-backend dependency pinning
 
-Status: inventory complete; stable tch-rs family selected; compatibility spike pending.
+Status: tch-only migration in progress; final stable tch-rs family selected;
+matching LibTorch package and GPU acceptance run pending.
 
-This document is the dependency checkpoint before removing the backend
-comparison implementations from `main`. It intentionally separates the
-current comparison matrix from the proposed final native Torch runtime.
+This document is the dependency checkpoint for removing the backend comparison
+implementations from `main`. `backend-comparison` preserves the historical
+matrix; `main` is being reduced to one native Torch runtime.
 
 ## Current local inventory
 
@@ -12,38 +13,27 @@ current comparison matrix from the proposed final native Torch runtime.
 |---|---|---|---|
 | Rust | `rustc`/`cargo` 1.96.0, `x86_64-pc-windows-msvc` | Host toolchain | Keep for the first single-backend slice |
 | GPU | GeForce RTX 4090, driver 610.88 | Target device | Keep; target-specific optimization remains intentional |
-| CUDA toolkit | 13.3 (`nvcc` 13.3.73) | CubeCL and native CUDA compilation | Keep installed; do not change before the compatibility spike |
-| CUDA Rust selector | `cudarc` 0.17.8, `CUDARC_CUDA_VERSION=13000` | Burn/CubeCL CUDA loading | Comparison-only until we decide whether Rust CUDA remains in the product |
-| Burn | 0.19.1 | Current model structure and comparison backends | Remove from the final runtime unless the Torch migration needs it temporarily |
-| CubeCL | 0.8.1, with matching shared crates patched from the v0.8.1 tag | Custom Burn CUDA kernel | Remove with the Burn comparison path |
-| Burn tch | 0.19.1 | Burn's LibTorch backend | Remove as a runtime abstraction; retain its useful native-operation findings |
-| `tch` | 0.22.0 | Rust wrapper over LibTorch | Replace with the selected final line |
-| `torch-sys` | 0.22.0 | Low-level FFI used by `tch` | Replace with the same exact `tch` family revision |
-| LibTorch/PyTorch | 2.9.0+cu128 | Burn-tch comparison runtime | Do not carry forward without a deliberate pin decision |
-| Direct TorchScript runtime | 2.0.1+cu117 | Existing handwritten C++ bridge | Retire from the final product path |
+| CUDA toolkit | 13.3 (`nvcc` 13.3.73) | Optional native extension/kernel work | Keep installed; not a product runtime dependency |
+| `tch` | 0.22.0 in the temporary local probe | Rust wrapper over LibTorch | Replace with the selected final line |
+| `torch-sys` | 0.22.0 in the temporary local probe | Low-level FFI used by `tch` | Replace with the same exact `tch` family revision |
+| LibTorch/PyTorch | 2.11.0+cu128 | Final Windows runtime package; CUDA link anchor required for MSVC | Accepted for the RTX 4090 probe |
+| Direct TorchScript runtime | 2.0.1+cu117 | Historical handwritten C++ bridge | Removed from `main`; retained only in `backend-comparison` |
 
 The two Torch installations are not interchangeable. The 2.0.1 environment
-belongs to the upstream TorchScript files; the 2.9 environment belongs to the
-current `tch`/Burn-tch build. The final process must load one LibTorch family.
+belongs to the upstream historical bridge; the 2.9 environment was useful for
+the temporary tch migration probe. The final process must load one LibTorch
+family, and the model files themselves remain independent of that runtime.
 
 ## Upstream versions relevant to the decision
 
-- PyTorch 2.13.0 is newer than the product dependency we are selecting.
-- PyTorch 2.14 is the current development/nightly line and is not a product
-  target.
 - The latest published `tch` release is 0.24.0, with matching
   `torch-sys` 0.24.0 and the LibTorch 2.11 line.
 - The `tch-rs` repository main branch may contain a newer, not-yet-published
   compatibility line. We will not use an unreleased git revision merely to
   chase the newest PyTorch release; a deliberate git pin can be considered
   later as a separate experiment.
-- Burn 0.21.0 is current upstream stable, but it is not a product target.
-  Its workspace still declares `tch`/`torch-sys` 0.22.0, so upgrading Burn
-  would not solve the Torch-version problem we are trying to solve.
-
-We will not spend a dependency-upgrade cycle on Burn. The Burn/CubeCL stack
-is comparison history and can be removed once the native `tch` runtime has
-passed the migration gates.
+We will not spend a dependency-upgrade cycle on Burn. The Burn/CubeCL stack is
+comparison history and is no longer a dependency of `main`.
 
 ## Proposed final target
 
@@ -91,12 +81,10 @@ the selector or install anything:
 2. Do our custom C++/CUDA extension build flags and the selected `tch` native
    handles work with CUDA 13.3 without a copy or a second runtime?
 
-The final product is intended to use `tch` plus the native LibTorch runtime.
-The comparison-only `cudarc`, CubeCL, Burn, Ash, and handwritten TorchScript
-bridge dependencies should be removed after the probe and migration tests
-pass. If a genuinely missing Torch operation requires a custom C++/CUDA
-operator, it will link against the same selected LibTorch runtime and accept
-`tch` tensor handles; that is an extension, not a second tensor backend.
+The final product uses `tch` plus the native LibTorch runtime. If a genuinely
+missing Torch operation requires a custom C++/CUDA operator, it will link
+against the same selected LibTorch runtime and accept `tch` tensor handles;
+that is an extension, not a second tensor backend.
 
 ## Pinning gates
 
@@ -110,6 +98,32 @@ repository and in the release build:
 5. A clean-environment load test and short waveform correctness receipt.
 6. A warm long-form benchmark receipt on the RTX 4090.
 
-The direct 2.0.1 bridge may remain temporarily as a correctness oracle during
-the migration, but it must not be loaded into the same process as the final
-LibTorch runtime.
+The direct 2.0.1 bridge is no longer compiled by `main` and must not be loaded
+into the same process as the final LibTorch runtime.
+
+On Windows MSVC, `main` carries a one-symbol CUDA import anchor because the
+published `tch 0.24`/`torch-sys 0.24` build can otherwise have the linker drop
+the unused `torch_cuda.dll` import. This is a loader/linker workaround only;
+all tensors and operators still come from `tch`/LibTorch. The upstream fix is
+being developed for a later tch-rs line.
+
+## Temporary migration evidence
+
+With `tch 0.24.0` and LibTorch 2.11.0+cu128, the direct Rust `tch::CModule`
+path loaded the upstream graphs, detected one CUDA device, and passed the
+short waveform smoke test on the RTX 4090:
+
+```text
+workload: Hello, friend
+model_load_ms: 2548
+warmups: 2
+measurements: 5
+warm measurement_ms: 49, 52, 53, 56, 56
+median_ms: 53
+p95_ms: 56
+sample_count: 26880
+audio_duration_ms: 1219
+```
+
+The earlier `tch 0.22`/PyTorch 2.9 CPU result (232 ms median, 253 ms p95) is
+retained only as migration history; it is no longer the product benchmark.

@@ -3,7 +3,6 @@
 
 pub mod audio;
 pub mod backend;
-pub mod backend_receipts;
 pub mod cli;
 pub mod config;
 pub mod frontend;
@@ -14,8 +13,6 @@ pub mod model_sources;
 pub mod native_glados;
 pub mod paths;
 pub mod runtime;
-#[cfg(feature = "vulkan")]
-pub mod vulkan;
 #[cfg(windows)]
 mod windows_startup;
 

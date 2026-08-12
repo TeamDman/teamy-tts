@@ -15,9 +15,9 @@ pub const MANIFEST_FILE_NAME: &str = "manifest.json";
 const MANIFEST_FORMAT: &str = "teamy-tts-prepared-model";
 const MANIFEST_SCHEMA_VERSION: u32 = 1;
 const NATIVE_BUNDLE_FILES: [&str; 6] = [
-    "acoustic-model.bpk",
-    "vocoder.bpk",
-    "phonemizer.bpk",
+    "glados-new.pt",
+    "vocoder-gpu.pt",
+    "glados-phonemizer.pt",
     "frontend.tsv",
     "voice-p1.f32le",
     "voice-p2.f32le",
@@ -92,10 +92,10 @@ impl PreparedModelArtifacts {
 /// The bundle is intentionally a fixed, shallow layout.  Conversion tools
 /// produce these names, and the runtime only consumes the resulting manifest:
 ///
-/// - `acoustic-model.bpk`
-/// - `vocoder.bpk`
+/// - `glados-new.pt`
+/// - `vocoder-gpu.pt`
 /// - `frontend.tsv`
-/// - `phonemizer.bpk`
+/// - `glados-phonemizer.pt`
 /// - `voice-p1.f32le`
 /// - `voice-p2.f32le`
 ///
@@ -156,14 +156,8 @@ pub fn prepare_native_bundle(
     })?;
 
     let definitions = [
-        (
-            "acoustic-model",
-            "acoustic-model.bpk",
-            "burnpack",
-            None,
-            None,
-        ),
-        ("vocoder", "vocoder.bpk", "burnpack", None, None),
+        ("acoustic-model", "glados-new.pt", "torchscript", None, None),
+        ("vocoder", "vocoder-gpu.pt", "torchscript", None, None),
         (
             "frontend-dictionary",
             "frontend.tsv",
@@ -173,8 +167,8 @@ pub fn prepare_native_bundle(
         ),
         (
             "frontend-phonemizer",
-            "phonemizer.bpk",
-            "burnpack",
+            "glados-phonemizer.pt",
+            "torchscript",
             None,
             None,
         ),
@@ -227,7 +221,7 @@ pub fn prepare_native_bundle(
         revision: model.revision.to_string(),
         source_archive_sha256: model.archive_sha256.to_string(),
         source_archive_size_bytes: model.archive_size_bytes,
-        converter_version: "native-bundle-v1".to_string(),
+        converter_version: "tch-native-bundle-v1".to_string(),
         sample_rate_hz: model.sample_rate_hz,
         artifacts,
     };
@@ -279,7 +273,7 @@ pub fn prepare_native_bundle(
 /// Extract and prepare a fixed native bundle archive without invoking an
 /// external archive tool.
 ///
-/// Only the six exact root-level runtime artifacts are extracted. Unknown
+/// Only the six exact root-level tch runtime artifacts are extracted. Unknown
 /// entries are ignored, and archive paths never become filesystem paths, so a
 /// malformed archive cannot write outside the temporary extraction directory.
 ///
@@ -691,7 +685,7 @@ mod tests {
         let root = unique_temp_dir("prepared-model");
         std::fs::create_dir_all(&root).expect("test root should be creatable");
         let contents = b"native test artifact";
-        let artifact_path = root.join("acoustic/model.bpk");
+        let artifact_path = root.join("acoustic/glados-new.pt");
         std::fs::create_dir_all(
             artifact_path
                 .parent()
@@ -713,8 +707,8 @@ mod tests {
             sample_rate_hz: model.sample_rate_hz,
             artifacts: vec![PreparedArtifact {
                 role: "acoustic-model".to_string(),
-                path: "acoustic/model.bpk".to_string(),
-                format: "burnpack".to_string(),
+                path: "acoustic/glados-new.pt".to_string(),
+                format: "torchscript".to_string(),
                 sha256: format!("{:x}", hasher.finalize()),
                 size_bytes: contents.len() as u64,
                 dtype: None,
@@ -752,8 +746,8 @@ mod tests {
             sample_rate_hz: model.sample_rate_hz,
             artifacts: vec![PreparedArtifact {
                 role: "acoustic-model".to_string(),
-                path: "../outside.bpk".to_string(),
-                format: "burnpack".to_string(),
+                path: "../outside.pt".to_string(),
+                format: "torchscript".to_string(),
                 sha256: "00".repeat(32),
                 size_bytes: 0,
                 dtype: None,
