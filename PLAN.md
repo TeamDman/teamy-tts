@@ -19,10 +19,9 @@ Plan path: G:\Programming\Repos\teamy-tts\PLAN.md
 Last updated: 2026-08-12
 Current focus: [x] complete the profileable Burn/LibTorch/Vulkan candidate,
 Burn candidate-matrix, remembered-runtime-configuration, and first fused CUDA
-recurrent-kernel milestones; [~] continue reducing the remaining Burn-versus-
-LibTorch gap and validate long-form scaling against the direct LibTorch oracle;
-[!] continue Burn-tch output-shape parity and
-WGPU/Burn-Vulkan performance follow-up
+recurrent-kernel milestones; [~] pin the final single-backend Torch/CUDA
+toolchain before removing comparison implementations; [!] Burn-tch output-shape
+parity and WGPU/Burn-Vulkan performance are comparison-only follow-up work.
 
 **Plan status:** Active
 **Primary implementation root:** `G:\Programming\Repos\teamy-tts`
@@ -116,6 +115,7 @@ inference backends.
 | T25 | Keep a representative long-form benchmark workload that records warm latency, model-load latency, output duration, real-time factor, and recurrent output frame counts without weakening the correctness-gated automatic-selection corpus. | Confirmed; `glados-long-v1` is diagnostic-only when `--skip-correctness` is used | W22, A25 |
 | T26 | Optimize Burn recurrent inference by packing compatible gate projections while preserving the serialized Burn module layout and generic backend fallback. | Confirmed checkpoint; packed bidirectional GRU and LSTM pass the short waveform gate; kernel-level fusion remains open | W22, A26 |
 | T27 | Add the first backend-native fused Burn recurrent kernel without changing Burnpack artifacts or weakening portable fallback behavior. | Confirmed; plain CUDA uses a specialized `CubeCL` bidirectional LSTM kernel, while fused/all-backends builds retain the packed fallback | W22, A27 |
+| T28 | Freeze the final single-backend native Torch toolchain before cleanup: exact `tch`/`torch-sys`, LibTorch/PyTorch, CUDA toolkit, compiler, and runtime packaging versions; do not upgrade Burn because it is comparison-only. | In progress; preferred target is stable PyTorch 2.13 with a matching `tch-rs` revision, with a 2.12/`tch` 0.25 fallback | W25, A28 |
 
 ## Evidence inspected
 
@@ -1563,25 +1563,39 @@ Completed 2026-08-06. Checked that the plan does not:
 - treat an R2 object ETag as the archive's SHA-256;
 - publish models.zip before the source/license decision is recorded.
 
+#### W25 [~] Pin the final native Torch/CUDA toolchain
+
+Work: Build a small compatibility probe for the latest stable LibTorch and
+the current `tch` family, then record the exact runtime/compiler/CUDA versions
+needed by the final single-backend process. Verify that `tch::CModule` and
+`tch::IValue::GenericDict` replace the handwritten C++ bridge. Keep the old
+2.0.1 bridge available as a temporary oracle, but do not load it beside the
+selected runtime. Burn/CubeCL upgrades are explicitly out of scope.
+
+Validation: The selected stack must build from a clean environment, create and
+operate CUDA tensors through `tch`, load the GLaDOS artifacts, pass a short
+waveform correctness receipt, and produce a warm long-form RTX 4090 benchmark.
+If stable PyTorch 2.13 requires an unreleased `tch-rs` revision, pin that
+revision explicitly; otherwise use the highest stable `tch`/LibTorch pair and
+document why.
+
+Evidence: [DEPENDENCIES.md](DEPENDENCIES.md).
+
 ## Next safe implementation slice
 
-1. Rehearse the final release package from a clean `PATH`, then preserve the
-   receipt and package evidence alongside the current source revision.
-2. Continue from the validated plain-CUDA `CubeCL` LSTM kernel by profiling
-   memory traffic, launch geometry, and the still-packed recurrent stages.
-   Preserve the packed implementation as the portable fallback and compare
-   intermediate tensors before changing automatic-selection policy.
-3. Investigate the Burn tch duration/output-shape drift now that its isolated
-   LibTorch 2.9-compatible build environment and receipt exist; do not
-   substitute the upstream 2.0.1 installation.
-4. Use the opt-in Vulkan batch profile to measure command recording, transfer
-   staging, GPU timestamps, and the remaining Burn predictor/prenet prefix
-   across the merged batch; only then decide whether barrier reduction, fused
-   kernels, or a different graph partition is justified.
-5. Keep the existing model acquisition, redirect/resume, source-manifest, and
-   release-evidence work synchronized with the backend artifacts; keep each
-   backend eligible for `auto` only after its complete workload has a passing receipt
-   and beats the supported alternatives on the target machine.
+1. Run the W25 compatibility probe against stable PyTorch 2.13 and the
+   highest supported `tch-rs` revision.
+2. If required, repeat the probe with the stable 2.12/`tch` 0.25 fallback;
+   record the selected exact revisions in `DEPENDENCIES.md` and the build
+   scripts.
+3. Rehearse the final release package from a clean `PATH`, then preserve the
+   receipt and package evidence alongside the selected source revision.
+4. Only after W25 passes, remove comparison-only backend selection, receipts,
+   Burn/CubeCL/Ash comparison code, and the obsolete direct 2.0.1 bridge in
+   deliberate slices. Keep only the native `tch` runtime and any same-runtime
+   custom operators that prove necessary.
+5. Keep model acquisition, source manifests, and release evidence synchronized
+   with the new native Torch runtime and its redistributed libraries.
 
 Do not begin by manually rewriting every neural layer. First freeze the
 reference tensors, model variants, frontend behavior, and artifact provenance.
