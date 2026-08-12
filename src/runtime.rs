@@ -7,6 +7,7 @@ use crate::backend::SynthesisInput;
 use crate::frontend::GladosFrontend;
 use crate::frontend_model::GladosPhonemizer;
 use crate::model_registry::PreparedModelArtifacts;
+use crate::native_glados::AcousticLstmBackend;
 #[cfg(feature = "vulkan")]
 use crate::native_glados::Cbhg;
 use crate::native_glados::GladosAcousticModel;
@@ -1791,7 +1792,7 @@ fn load_burn_runtime<AcousticBackend: Backend, VocoderBackend: Backend>(
     })
 }
 
-impl<AcousticBackend: Backend, VocoderBackend: Backend> GladosBackend
+impl<AcousticBackend: Backend + AcousticLstmBackend, VocoderBackend: Backend> GladosBackend
     for BurnRuntime<AcousticBackend, VocoderBackend>
 where
     AcousticBackend::IntElem: From<i32>,
@@ -1824,12 +1825,13 @@ where
             .acoustic
             .generate(tokens, speaker, input.alpha)
             .mel_post;
+        let [batch_size, mel_channels, mel_frames] = mel.dims();
         tracing::info!(
             elapsed_ms = acoustic_started.elapsed().as_millis(),
+            mel_frames,
             "acoustic mel spectrogram complete"
         );
         tracing::info!("generating waveform with vocoder");
-        let [batch_size, mel_channels, mel_frames] = mel.dims();
         let mel_values = mel.to_data().to_vec::<f32>().map_err(|error| {
             eyre::eyre!("failed to copy acoustic mel spectrogram to the vocoder: {error:?}")
         })?;

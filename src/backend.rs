@@ -44,7 +44,7 @@ pub enum BackendKind {
     BurnTch,
     /// Burn WGPU using its automatic graphics API selection.
     BurnWgpu,
-    /// Burn's explicit Vulkan backend using CubeCL's Vulkan/SPIR-V path.
+    /// Burn's explicit Vulkan backend using `CubeCL`'s Vulkan/SPIR-V path.
     BurnVulkan,
     /// Upstream `TorchScript` executed through native `LibTorch`.
     LibTorch,

@@ -3,6 +3,23 @@
     reason = "Burn's Module derive uses serde internally for model records."
 )]
 
+#[cfg(all(
+    feature = "cuda",
+    not(any(
+        feature = "burn-cuda-fused",
+        feature = "burn-wgpu",
+        feature = "burn-vulkan"
+    ))
+))]
+mod cuda_lstm;
+#[cfg(feature = "burn-tch")]
+mod tch_cbhg;
+#[cfg(feature = "burn-tch")]
+mod tch_gru;
+#[cfg(feature = "burn-tch")]
+mod tch_lstm;
+#[cfg(feature = "burn-tch")]
+mod tch_predictor;
 #[cfg(feature = "torchscript")]
 pub mod torchscript;
 pub mod vocoder;
@@ -22,6 +39,7 @@ use burn::nn::gru::Gru;
 use burn::nn::gru::GruConfig;
 use burn::nn::lstm::BiLstm;
 use burn::nn::lstm::BiLstmConfig;
+use burn::nn::lstm::Lstm;
 use burn::nn::pool::MaxPool1d;
 use burn::nn::pool::MaxPool1dConfig;
 use burn::tensor::Int;
@@ -39,6 +57,141 @@ use std::time::Instant;
 
 /// Backend used by the first native `GLaDOS` acoustic runtime.
 pub type GladosCpuBackend = burn::backend::NdArray;
+
+pub trait AcousticLstmBackend: Backend {
+    fn forward_bidirectional_lstm(lstm: &BiLstm<Self>, input: Tensor<Self, 3>) -> Tensor<Self, 3>;
+
+    fn forward_bidirectional_gru(
+        gru: &BidirectionalGru<Self>,
+        input: Tensor<Self, 3>,
+    ) -> Tensor<Self, 3> {
+        gru.forward(input)
+    }
+
+    fn forward_cbhg(cbhg: &Cbhg<Self>, input: Tensor<Self, 3>) -> Tensor<Self, 3> {
+        cbhg.forward(input)
+    }
+
+    fn forward_series_predictor(
+        predictor: &SeriesPredictor<Self>,
+        tokens: Tensor<Self, 2, Int>,
+        speaker_embedding: Tensor<Self, 2>,
+        alpha: f32,
+    ) -> Tensor<Self, 3> {
+        forward_series_predictor_reference(predictor, tokens, speaker_embedding, alpha)
+    }
+
+    fn forward_conditional_series_predictor(
+        predictor: &ConditionalSeriesPredictor<Self>,
+        tokens: Tensor<Self, 2, Int>,
+        pitch_conditions: Tensor<Self, 2, Int>,
+        speaker_embedding: Tensor<Self, 2>,
+        alpha: f32,
+    ) -> Tensor<Self, 3> {
+        forward_conditional_series_predictor_reference(
+            predictor,
+            tokens,
+            pitch_conditions,
+            speaker_embedding,
+            alpha,
+        )
+    }
+}
+
+fn forward_bidirectional_lstm_reference<B: Backend>(
+    lstm: &BiLstm<B>,
+    input: Tensor<B, 3>,
+) -> Tensor<B, 3> {
+    let forward = forward_lstm_direction_reference(&lstm.forward, input.clone());
+    let reverse = forward_lstm_direction_reference(&lstm.reverse, input.flip([1])).flip([1]);
+    Tensor::cat(vec![forward, reverse], 2)
+}
+
+impl AcousticLstmBackend for GladosCpuBackend {
+    fn forward_bidirectional_lstm(lstm: &BiLstm<Self>, input: Tensor<Self, 3>) -> Tensor<Self, 3> {
+        forward_bidirectional_lstm_reference(lstm, input)
+    }
+}
+
+#[cfg(feature = "cuda")]
+impl AcousticLstmBackend for burn::backend::Cuda {
+    fn forward_bidirectional_lstm(lstm: &BiLstm<Self>, input: Tensor<Self, 3>) -> Tensor<Self, 3> {
+        #[cfg(any(
+            feature = "burn-cuda-fused",
+            feature = "burn-wgpu",
+            feature = "burn-vulkan"
+        ))]
+        {
+            forward_bidirectional_lstm_reference(lstm, input)
+        }
+
+        #[cfg(not(any(
+            feature = "burn-cuda-fused",
+            feature = "burn-wgpu",
+            feature = "burn-vulkan"
+        )))]
+        {
+            cuda_lstm::forward_bidirectional_lstm(lstm, input)
+        }
+    }
+}
+
+#[cfg(feature = "burn-tch")]
+impl AcousticLstmBackend for burn::backend::LibTorch<f32> {
+    fn forward_bidirectional_lstm(lstm: &BiLstm<Self>, input: Tensor<Self, 3>) -> Tensor<Self, 3> {
+        tch_lstm::forward_bidirectional_lstm(lstm, input)
+    }
+
+    fn forward_bidirectional_gru(
+        gru: &BidirectionalGru<Self>,
+        input: Tensor<Self, 3>,
+    ) -> Tensor<Self, 3> {
+        tch_gru::forward_bidirectional_gru(gru, input)
+    }
+
+    fn forward_cbhg(cbhg: &Cbhg<Self>, input: Tensor<Self, 3>) -> Tensor<Self, 3> {
+        tch_cbhg::forward_cbhg(cbhg, input)
+    }
+
+    fn forward_series_predictor(
+        predictor: &SeriesPredictor<Self>,
+        tokens: Tensor<Self, 2, Int>,
+        speaker_embedding: Tensor<Self, 2>,
+        alpha: f32,
+    ) -> Tensor<Self, 3> {
+        tch_predictor::forward_series_predictor(predictor, tokens, speaker_embedding, alpha)
+    }
+
+    fn forward_conditional_series_predictor(
+        predictor: &ConditionalSeriesPredictor<Self>,
+        tokens: Tensor<Self, 2, Int>,
+        pitch_conditions: Tensor<Self, 2, Int>,
+        speaker_embedding: Tensor<Self, 2>,
+        alpha: f32,
+    ) -> Tensor<Self, 3> {
+        tch_predictor::forward_conditional_series_predictor(
+            predictor,
+            tokens,
+            pitch_conditions,
+            speaker_embedding,
+            alpha,
+        )
+    }
+}
+
+#[cfg(feature = "burn-wgpu")]
+impl AcousticLstmBackend for burn::backend::Wgpu {
+    fn forward_bidirectional_lstm(lstm: &BiLstm<Self>, input: Tensor<Self, 3>) -> Tensor<Self, 3> {
+        forward_bidirectional_lstm_reference(lstm, input)
+    }
+}
+
+#[cfg(feature = "burn-vulkan")]
+impl AcousticLstmBackend for burn::backend::Vulkan {
+    fn forward_bidirectional_lstm(lstm: &BiLstm<Self>, input: Tensor<Self, 3>) -> Tensor<Self, 3> {
+        forward_bidirectional_lstm_reference(lstm, input)
+    }
+}
 
 /// Backend used by the production vocoder runtime.
 ///
@@ -216,9 +369,114 @@ pub struct BidirectionalGru<B: Backend> {
 
 impl<B: Backend> BidirectionalGru<B> {
     fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
-        let forward = self.forward.forward(input.clone(), None);
-        let reverse = self.reverse.forward(input.flip([1]), None).flip([1]);
+        let forward = Self::forward_direction(&self.forward, input.clone());
+        let reverse = Self::forward_direction(&self.reverse, input.flip([1])).flip([1]);
         Tensor::cat(vec![forward, reverse], 2)
+    }
+
+    /// Execute one GRU direction with the three gate projections packed.
+    ///
+    /// Burn's generic `Gru` implementation performs separate input and hidden
+    /// matrix multiplications for each of update, reset, and new gates at every
+    /// timestep. The model uses PyTorch-compatible reset-after GRUs, so the
+    /// three input projections and three hidden projections can be concatenated
+    /// into two matrix multiplications without changing the serialized module
+    /// layout. Keeping the original `Gru` fields also preserves Burnpack
+    /// loading compatibility.
+    fn forward_direction(gru: &Gru<B>, batched_input: Tensor<B, 3>) -> Tensor<B, 3> {
+        if !gru.reset_after {
+            return gru.forward(batched_input, None);
+        }
+
+        let device = batched_input.device();
+        let [batch_size, sequence_length, _] = batched_input.dims();
+        let hidden_channels = gru.d_hidden;
+        let input_weight = Tensor::cat(
+            vec![
+                gru.update_gate.input_transform.weight.val(),
+                gru.reset_gate.input_transform.weight.val(),
+                gru.new_gate.input_transform.weight.val(),
+            ],
+            1,
+        );
+        let hidden_weight = Tensor::cat(
+            vec![
+                gru.update_gate.hidden_transform.weight.val(),
+                gru.reset_gate.hidden_transform.weight.val(),
+                gru.new_gate.hidden_transform.weight.val(),
+            ],
+            1,
+        );
+        let input_bias = concat_gru_biases(
+            gru.update_gate.input_transform.bias.as_ref(),
+            gru.reset_gate.input_transform.bias.as_ref(),
+            gru.new_gate.input_transform.bias.as_ref(),
+        );
+        let hidden_bias = concat_gru_biases(
+            gru.update_gate.hidden_transform.bias.as_ref(),
+            gru.reset_gate.hidden_transform.bias.as_ref(),
+            gru.new_gate.hidden_transform.bias.as_ref(),
+        );
+
+        let mut hidden = Tensor::zeros([batch_size, hidden_channels], &device);
+        let mut outputs = Vec::with_capacity(sequence_length);
+        for input_t in batched_input.iter_dim(1) {
+            let input_t = input_t.squeeze_dim(1);
+            let input_projection =
+                add_gru_bias(input_t.matmul(input_weight.clone()), input_bias.as_ref());
+            let hidden_projection = add_gru_bias(
+                hidden.clone().matmul(hidden_weight.clone()),
+                hidden_bias.as_ref(),
+            );
+            let update = burn::tensor::activation::sigmoid(
+                input_projection
+                    .clone()
+                    .slice([0..batch_size, 0..hidden_channels])
+                    + hidden_projection
+                        .clone()
+                        .slice([0..batch_size, 0..hidden_channels]),
+            );
+            let reset = burn::tensor::activation::sigmoid(
+                input_projection
+                    .clone()
+                    .slice([0..batch_size, hidden_channels..2 * hidden_channels])
+                    + hidden_projection
+                        .clone()
+                        .slice([0..batch_size, hidden_channels..2 * hidden_channels]),
+            );
+            let candidate = (input_projection
+                .slice([0..batch_size, 2 * hidden_channels..3 * hidden_channels])
+                + reset
+                    * hidden_projection
+                        .slice([0..batch_size, 2 * hidden_channels..3 * hidden_channels]))
+            .tanh();
+            hidden =
+                candidate.mul(update.clone().sub_scalar(1).mul_scalar(-1)) + update.mul(hidden);
+            outputs.push(hidden.clone().unsqueeze_dim(1));
+        }
+
+        Tensor::cat(outputs, 1)
+    }
+}
+
+fn concat_gru_biases<B: Backend>(
+    first: Option<&burn::module::Param<Tensor<B, 1>>>,
+    second: Option<&burn::module::Param<Tensor<B, 1>>>,
+    third: Option<&burn::module::Param<Tensor<B, 1>>>,
+) -> Option<Tensor<B, 1>> {
+    match (first, second, third) {
+        (Some(first), Some(second), Some(third)) => {
+            Some(Tensor::cat(vec![first.val(), second.val(), third.val()], 0))
+        }
+        (None, None, None) => None,
+        _ => panic!("GRU gate biases must be consistently present"),
+    }
+}
+
+fn add_gru_bias<B: Backend>(projection: Tensor<B, 2>, bias: Option<&Tensor<B, 1>>) -> Tensor<B, 2> {
+    match bias {
+        Some(bias) => projection + bias.clone().unsqueeze(),
+        None => projection,
     }
 }
 
@@ -391,6 +649,32 @@ impl<B: Backend> Cbhg<B> {
 #[derive(Clone, Module, Debug)]
 pub struct LengthRegulator;
 
+const DURATION_TIE_EPSILON: f32 = 0.004;
+
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "Model durations are finite, non-negative, and bounded frame counts."
+)]
+fn duration_to_frame_count(duration: f32) -> usize {
+    if !duration.is_finite() {
+        return 0;
+    }
+    let duration = duration.max(0.0);
+    let lower = duration.floor();
+    let fractional = duration - lower;
+    let rounded = if (fractional - 0.5).abs() <= DURATION_TIE_EPSILON {
+        if (lower as usize).is_multiple_of(2) {
+            lower
+        } else {
+            lower + 1.0
+        }
+    } else {
+        (duration + 0.5).floor()
+    };
+    rounded as usize
+}
+
 impl LengthRegulator {
     fn forward<B: Backend>(input: &Tensor<B, 3>, durations: &Tensor<B, 2>) -> Tensor<B, 3> {
         let [batch_size, token_count, channels] = input.dims();
@@ -407,12 +691,7 @@ impl LengthRegulator {
             let mut length = 0;
             for token_index in 0..token_count {
                 let duration = duration_values[batch_index * token_count + token_index];
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    clippy::cast_sign_loss,
-                    reason = "Durations are clamped non-negative and the model's frame count is usize-sized."
-                )]
-                let repeat_count = (duration + 0.5).max(0.0) as usize;
+                let repeat_count = duration_to_frame_count(duration);
                 if repeat_count == 0 {
                     continue;
                 }
@@ -583,7 +862,10 @@ impl<B: Backend> GladosAcousticModel<B> {
         tokens: Tensor<B, 2, Int>,
         speaker_embedding: Tensor<B, 2>,
         alpha: f32,
-    ) -> GladosMelOutput<B> {
+    ) -> GladosMelOutput<B>
+    where
+        B: AcousticLstmBackend,
+    {
         let started = Instant::now();
         let pitch_condition_scores =
             self.pitch_cond_pred
@@ -619,7 +901,24 @@ impl<B: Backend> GladosAcousticModel<B> {
             .to_data()
             .to_vec::<f32>()
             .expect("duration tensor should contain f32 values");
-        let durations = if duration_values.iter().sum::<f32>() <= 0.0 {
+        let duration_sum = duration_values.iter().sum::<f32>();
+        let duration_rounding_boundaries = duration_rounding_boundaries(&duration_values);
+        let duration_frame_count = if duration_sum <= 0.0 {
+            duration_values.len().saturating_mul(2)
+        } else {
+            duration_frame_count_from_values(&duration_values)
+        };
+        tracing::info!(
+            duration_sum,
+            duration_frame_count,
+            fallback = duration_sum <= 0.0,
+            "acoustic duration schedule ready"
+        );
+        tracing::debug!(
+            ?duration_rounding_boundaries,
+            "acoustic duration rounding boundaries"
+        );
+        let durations = if duration_sum <= 0.0 {
             Tensor::full(durations.dims(), 2.0, &durations.device())
         } else {
             durations
@@ -663,7 +962,10 @@ impl<B: Backend> GladosAcousticModel<B> {
         pitch: Tensor<B, 3>,
         energy: Tensor<B, 3>,
         pitch_conditions: Tensor<B, 2, Int>,
-    ) -> GladosMelOutput<B> {
+    ) -> GladosMelOutput<B>
+    where
+        B: AcousticLstmBackend,
+    {
         let started = Instant::now();
         let trace = self.trace_mel(
             tokens,
@@ -700,10 +1002,13 @@ impl<B: Backend> GladosAcousticModel<B> {
         durations: &Tensor<B, 2>,
         pitch: Tensor<B, 3>,
         energy: Tensor<B, 3>,
-    ) -> GladosAcousticTrace<B> {
+    ) -> GladosAcousticTrace<B>
+    where
+        B: AcousticLstmBackend,
+    {
         let started = Instant::now();
         let embedded = self.embedding.forward(tokens);
-        let prenet = self.prenet.forward(embedded.transpose());
+        let prenet = B::forward_cbhg(&self.prenet, embedded.transpose());
         tracing::debug!(
             elapsed_ms = started.elapsed().as_millis(),
             "acoustic prenet complete"
@@ -722,13 +1027,20 @@ impl<B: Backend> GladosAcousticModel<B> {
             elapsed_ms = started.elapsed().as_millis(),
             "acoustic length regulation complete"
         );
-        let (hidden, _) = self.lstm.forward(regulated.clone(), None);
+        let lstm_started = Instant::now();
+        let hidden = B::forward_bidirectional_lstm(&self.lstm, regulated.clone());
+        tracing::info!(
+            elapsed_ms = lstm_started.elapsed().as_millis(),
+            mel_frames = hidden.dims()[1],
+            "acoustic bidirectional LSTM complete"
+        );
+        let mel_projection_started = Instant::now();
         let mel = self.lin.forward(hidden.clone()).transpose();
         tracing::debug!(
-            elapsed_ms = started.elapsed().as_millis(),
-            "acoustic lstm and mel projection complete"
+            elapsed_ms = mel_projection_started.elapsed().as_millis(),
+            "acoustic mel projection complete"
         );
-        let postnet = self.postnet.forward(mel.clone());
+        let postnet = B::forward_cbhg(&self.postnet, mel.clone());
         let mel_post = self.post_proj.forward(postnet.clone()).transpose();
         tracing::debug!(
             elapsed_ms = started.elapsed().as_millis(),
@@ -749,6 +1061,145 @@ impl<B: Backend> GladosAcousticModel<B> {
     }
 }
 
+/// Execute both LSTM directions with their four gate projections packed.
+///
+/// This is the portable Burn implementation used as the correctness fallback
+/// for every backend except the non-fused CUDA extension. Burn's generic LSTM
+/// implementation performs one input and one hidden matrix multiplication for
+/// each gate at every timestep. Packing the four gates keeps the Burnpack
+/// module layout unchanged while reducing that to one input and one hidden
+/// projection per timestep.
+pub(super) fn forward_lstm_direction_reference<B: Backend>(
+    lstm: &Lstm<B>,
+    batched_input: Tensor<B, 3>,
+) -> Tensor<B, 3> {
+    let device = batched_input.device();
+    let [batch_size, sequence_length, _] = batched_input.dims();
+    let hidden_channels = lstm.d_hidden;
+    let input_weight = Tensor::cat(
+        vec![
+            lstm.input_gate.input_transform.weight.val(),
+            lstm.forget_gate.input_transform.weight.val(),
+            lstm.output_gate.input_transform.weight.val(),
+            lstm.cell_gate.input_transform.weight.val(),
+        ],
+        1,
+    );
+    let hidden_weight = Tensor::cat(
+        vec![
+            lstm.input_gate.hidden_transform.weight.val(),
+            lstm.forget_gate.hidden_transform.weight.val(),
+            lstm.output_gate.hidden_transform.weight.val(),
+            lstm.cell_gate.hidden_transform.weight.val(),
+        ],
+        1,
+    );
+    let input_bias = concat_lstm_biases(
+        lstm.input_gate.input_transform.bias.as_ref(),
+        lstm.forget_gate.input_transform.bias.as_ref(),
+        lstm.output_gate.input_transform.bias.as_ref(),
+        lstm.cell_gate.input_transform.bias.as_ref(),
+    );
+    let hidden_bias = concat_lstm_biases(
+        lstm.input_gate.hidden_transform.bias.as_ref(),
+        lstm.forget_gate.hidden_transform.bias.as_ref(),
+        lstm.output_gate.hidden_transform.bias.as_ref(),
+        lstm.cell_gate.hidden_transform.bias.as_ref(),
+    );
+
+    let mut cell = Tensor::zeros([batch_size, hidden_channels], &device);
+    let mut hidden = Tensor::zeros([batch_size, hidden_channels], &device);
+    let mut outputs = Vec::with_capacity(sequence_length);
+    for input_t in batched_input.iter_dim(1) {
+        let input_t = input_t.squeeze_dim(1);
+        let input_projection =
+            add_projection_bias(input_t.matmul(input_weight.clone()), input_bias.as_ref());
+        let hidden_projection = add_projection_bias(
+            hidden.clone().matmul(hidden_weight.clone()),
+            hidden_bias.as_ref(),
+        );
+        let input_values = sigmoid(
+            input_projection
+                .clone()
+                .slice([0..batch_size, 0..hidden_channels])
+                + hidden_projection
+                    .clone()
+                    .slice([0..batch_size, 0..hidden_channels]),
+        );
+        let forget_values = sigmoid(
+            input_projection
+                .clone()
+                .slice([0..batch_size, hidden_channels..2 * hidden_channels])
+                + hidden_projection
+                    .clone()
+                    .slice([0..batch_size, hidden_channels..2 * hidden_channels]),
+        );
+        let output_values = sigmoid(
+            input_projection
+                .clone()
+                .slice([0..batch_size, 2 * hidden_channels..3 * hidden_channels])
+                + hidden_projection
+                    .clone()
+                    .slice([0..batch_size, 2 * hidden_channels..3 * hidden_channels]),
+        );
+        let candidate = (input_projection
+            .slice([0..batch_size, 3 * hidden_channels..4 * hidden_channels])
+            + hidden_projection.slice([0..batch_size, 3 * hidden_channels..4 * hidden_channels]))
+        .tanh();
+
+        cell = forget_values * cell + input_values * candidate;
+        hidden = output_values * cell.clone().tanh();
+        outputs.push(hidden.clone().unsqueeze_dim(1));
+    }
+
+    Tensor::cat(outputs, 1)
+}
+
+fn concat_lstm_biases<B: Backend>(
+    first: Option<&burn::module::Param<Tensor<B, 1>>>,
+    second: Option<&burn::module::Param<Tensor<B, 1>>>,
+    third: Option<&burn::module::Param<Tensor<B, 1>>>,
+    fourth: Option<&burn::module::Param<Tensor<B, 1>>>,
+) -> Option<Tensor<B, 1>> {
+    match (first, second, third, fourth) {
+        (Some(first), Some(second), Some(third), Some(fourth)) => Some(Tensor::cat(
+            vec![first.val(), second.val(), third.val(), fourth.val()],
+            0,
+        )),
+        (None, None, None, None) => None,
+        _ => panic!("LSTM gate biases must be consistently present"),
+    }
+}
+
+fn add_projection_bias<B: Backend>(
+    projection: Tensor<B, 2>,
+    bias: Option<&Tensor<B, 1>>,
+) -> Tensor<B, 2> {
+    match bias {
+        Some(bias) => projection + bias.clone().unsqueeze(),
+        None => projection,
+    }
+}
+
+fn duration_frame_count_from_values(values: &[f32]) -> usize {
+    values.iter().copied().map(duration_to_frame_count).sum()
+}
+
+fn duration_rounding_boundaries(values: &[f32]) -> Vec<(usize, f32)> {
+    values
+        .iter()
+        .copied()
+        .enumerate()
+        .filter_map(|(index, value)| {
+            let fractional = value - value.floor();
+            (fractional - 0.5)
+                .abs()
+                .le(&DURATION_TIE_EPSILON)
+                .then_some((index, value))
+        })
+        .collect()
+}
+
 /// A predictor used for pitch-condition and energy prediction.
 #[derive(Module, Debug)]
 pub struct SeriesPredictor<B: Backend> {
@@ -758,6 +1209,25 @@ pub struct SeriesPredictor<B: Backend> {
     pub lin: Linear<B>,
 }
 
+fn forward_series_predictor_reference<B: AcousticLstmBackend>(
+    predictor: &SeriesPredictor<B>,
+    tokens: Tensor<B, 2, Int>,
+    speaker_embedding: Tensor<B, 2>,
+    alpha: f32,
+) -> Tensor<B, 3> {
+    let embedded = predictor.embedding.forward(tokens);
+    let [_, sequence_length, _] = embedded.dims();
+    let speaker_embedding = speaker_embedding
+        .unsqueeze_dim(1)
+        .repeat(&[1, sequence_length, 1]);
+    let mut input = Tensor::cat(vec![embedded, speaker_embedding], 2).transpose();
+    for conv in &predictor.convs {
+        input = conv.forward(input);
+    }
+    let input = B::forward_bidirectional_gru(&predictor.rnn, input.transpose());
+    predictor.lin.forward(input).div_scalar(alpha)
+}
+
 impl<B: Backend> SeriesPredictor<B> {
     /// Run the predictor on token IDs and speaker embeddings.
     pub fn forward(
@@ -765,19 +1235,11 @@ impl<B: Backend> SeriesPredictor<B> {
         tokens: Tensor<B, 2, Int>,
         speaker_embedding: Tensor<B, 2>,
         alpha: f32,
-    ) -> Tensor<B, 3> {
-        let embedded = self.embedding.forward(tokens);
-        let [_, sequence_length, _] = embedded.dims();
-        let speaker_embedding = speaker_embedding
-            .unsqueeze_dim(1)
-            .repeat(&[1, sequence_length, 1]);
-        let mut input = Tensor::cat(vec![embedded, speaker_embedding], 2).transpose();
-        for conv in &self.convs {
-            input = conv.forward(input);
-        }
-        let input = self.rnn.forward(input.transpose());
-        let output = self.lin.forward(input);
-        output.div_scalar(alpha)
+    ) -> Tensor<B, 3>
+    where
+        B: AcousticLstmBackend,
+    {
+        B::forward_series_predictor(self, tokens, speaker_embedding, alpha)
     }
 }
 
@@ -791,6 +1253,27 @@ pub struct ConditionalSeriesPredictor<B: Backend> {
     pub lin: Linear<B>,
 }
 
+fn forward_conditional_series_predictor_reference<B: AcousticLstmBackend>(
+    predictor: &ConditionalSeriesPredictor<B>,
+    tokens: Tensor<B, 2, Int>,
+    pitch_conditions: Tensor<B, 2, Int>,
+    speaker_embedding: Tensor<B, 2>,
+    alpha: f32,
+) -> Tensor<B, 3> {
+    let embedded = predictor.embedding.forward(tokens);
+    let pitch_conditions = predictor.pitch_cond_embedding.forward(pitch_conditions);
+    let [_, sequence_length, _] = embedded.dims();
+    let speaker_embedding = speaker_embedding
+        .unsqueeze_dim(1)
+        .repeat(&[1, sequence_length, 1]);
+    let mut input = Tensor::cat(vec![embedded, pitch_conditions, speaker_embedding], 2).transpose();
+    for conv in &predictor.convs {
+        input = conv.forward(input);
+    }
+    let input = B::forward_bidirectional_gru(&predictor.rnn, input.transpose());
+    predictor.lin.forward(input).div_scalar(alpha)
+}
+
 impl<B: Backend> ConditionalSeriesPredictor<B> {
     /// Run the predictor on token IDs, pitch-condition IDs, and speaker embeddings.
     pub fn forward(
@@ -799,20 +1282,17 @@ impl<B: Backend> ConditionalSeriesPredictor<B> {
         pitch_conditions: Tensor<B, 2, Int>,
         speaker_embedding: Tensor<B, 2>,
         alpha: f32,
-    ) -> Tensor<B, 3> {
-        let embedded = self.embedding.forward(tokens);
-        let pitch_conditions = self.pitch_cond_embedding.forward(pitch_conditions);
-        let [_, sequence_length, _] = embedded.dims();
-        let speaker_embedding = speaker_embedding
-            .unsqueeze_dim(1)
-            .repeat(&[1, sequence_length, 1]);
-        let mut input =
-            Tensor::cat(vec![embedded, pitch_conditions, speaker_embedding], 2).transpose();
-        for conv in &self.convs {
-            input = conv.forward(input);
-        }
-        let input = self.rnn.forward(input.transpose());
-        self.lin.forward(input).div_scalar(alpha)
+    ) -> Tensor<B, 3>
+    where
+        B: AcousticLstmBackend,
+    {
+        B::forward_conditional_series_predictor(
+            self,
+            tokens,
+            pitch_conditions,
+            speaker_embedding,
+            alpha,
+        )
     }
 }
 
@@ -996,5 +1476,16 @@ mod tests {
         );
         let embedded = model.embedding.forward(tokens);
         assert_eq!(embedded.dims(), [1, GLADOS_TOKEN_COUNT, 256]);
+    }
+
+    #[test]
+    fn duration_rounding_is_stable_at_backend_precision_boundaries() {
+        assert_eq!(duration_to_frame_count(4.498), 4);
+        assert_eq!(duration_to_frame_count(4.502), 4);
+        assert_eq!(duration_to_frame_count(5.498), 6);
+        assert_eq!(duration_to_frame_count(5.502), 6);
+        assert_eq!(duration_to_frame_count(6.506), 7);
+        assert_eq!(duration_to_frame_count(4.49), 4);
+        assert_eq!(duration_to_frame_count(4.51), 5);
     }
 }

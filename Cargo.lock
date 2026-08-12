@@ -285,6 +285,7 @@ dependencies = [
  "burn-store",
  "burn-tch",
  "burn-wgpu",
+ "cubecl",
 ]
 
 [[package]]
@@ -4900,10 +4901,12 @@ dependencies = [
  "arbitrary",
  "ash",
  "burn",
+ "burn-cubecl",
  "burn-store",
  "cc",
  "chrono",
  "color-eyre",
+ "cubecl",
  "directories-next",
  "embed-resource",
  "eyre",
@@ -4916,6 +4919,7 @@ dependencies = [
  "open",
  "reqwest",
  "sha2",
+ "tch",
  "teamy-cancellation",
  "tokio",
  "tracing",

@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 /// Schema version for benchmark receipts written by this executable.
-pub const BENCHMARK_RECEIPT_SCHEMA_VERSION: u32 = 1;
+pub const BENCHMARK_RECEIPT_SCHEMA_VERSION: u32 = 2;
 /// The stable benchmark corpus used for automatic backend selection.
 pub const DEFAULT_BENCHMARK_CORPUS_ID: &str = "glados-short-v1";
 /// Default number of warmup synthesis calls before timing.
@@ -28,6 +28,11 @@ pub const DEFAULT_MEASUREMENT_COUNT: u32 = 3;
 
 /// Texts in the stable short benchmark corpus.
 pub static DEFAULT_BENCHMARK_TEXTS: [&str; 2] = ["Hello, friend", "Let's see how fast this goes."];
+
+/// The long-form workload used to expose recurrent scaling and frame-count drift.
+pub static LONG_BENCHMARK_TEXTS: [&str; 1] = [
+    "i don't realistically see how they can keep their current approach if they want shadow mapping for vibrant visuals so i'm assuming it's something they want to do soon",
+];
 
 /// Configuration that participates in the benchmark receipt key.
 #[derive(Clone, Debug, Facet, PartialEq, Eq)]
@@ -53,6 +58,7 @@ impl BenchmarkConfiguration {
     pub fn corpus_texts(&self) -> &'static [&'static str] {
         match self.corpus_id.as_str() {
             DEFAULT_BENCHMARK_CORPUS_ID => &DEFAULT_BENCHMARK_TEXTS,
+            "glados-long-v1" => &LONG_BENCHMARK_TEXTS,
             _ => &[],
         }
     }
@@ -132,6 +138,8 @@ pub struct BackendBenchmarkReceipt {
     pub measurement_count: u32,
     pub warm_median_ms: f64,
     pub warm_p95_ms: f64,
+    pub model_load_ms: u128,
+    pub real_time_factor: f64,
     pub output_sample_count: u64,
     pub output_duration_ms: u64,
 }

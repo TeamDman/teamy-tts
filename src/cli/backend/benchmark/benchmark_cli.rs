@@ -43,6 +43,15 @@ pub struct BackendBenchmarkArgs {
     #[arbitrary(default)]
     pub alpha: Option<f32>,
 
+    /// Benchmark corpus identifier: glados-short-v1 or glados-long-v1.
+    #[facet(args::named)]
+    #[arbitrary(default)]
+    pub corpus: Option<String>,
+
+    /// Skip the `NdArray` waveform comparison for long-running diagnostic corpora.
+    #[facet(args::named, default)]
+    pub skip_correctness: bool,
+
     /// Number of warmup corpus passes.
     #[facet(args::named)]
     #[arbitrary(default)]
@@ -64,6 +73,8 @@ struct BackendBenchmarkReport {
     measurement_count: u32,
     warm_median_ms: f64,
     warm_p95_ms: f64,
+    model_load_ms: u128,
+    real_time_factor: f64,
     output_sample_count: u64,
     output_duration_ms: u64,
     correctness_passed: bool,
@@ -102,7 +113,11 @@ impl BackendBenchmarkArgs {
             bail!("--measurements must be between 1 and 100");
         }
         let configuration = backend_receipts::BenchmarkConfiguration {
-            corpus_id: backend_receipts::DEFAULT_BENCHMARK_CORPUS_ID.to_string(),
+            corpus_id: self
+                .corpus
+                .as_deref()
+                .unwrap_or(backend_receipts::DEFAULT_BENCHMARK_CORPUS_ID)
+                .to_string(),
             warmup_count,
             measurement_count,
         };
@@ -115,7 +130,9 @@ impl BackendBenchmarkArgs {
         }
         let voice = self.voice.as_deref().unwrap_or(DEFAULT_VOICE);
         let alpha = self.alpha.unwrap_or(DEFAULT_ALPHA);
+        let model_load_started = Instant::now();
         let (_model, runtime) = load_runtime(model_id, backend_value)?;
+        let model_load_ms = model_load_started.elapsed().as_millis();
         let actual_backend = runtime.backend_kind();
         tracing::info!(
             backend = %actual_backend,
@@ -153,20 +170,24 @@ impl BackendBenchmarkArgs {
             }
         }
 
-        let (correctness_passed, correctness_summary) =
-            if actual_backend == BackendKind::BurnNdArray {
-                (
-                    true,
-                    "Burn NdArray reference output is finite and non-empty".to_string(),
-                )
-            } else {
-                let (_model, reference) = load_runtime(model_id, Some("burn-ndarray"))?;
-                let mut reference_outputs = Vec::with_capacity(corpus.len());
-                for text in corpus {
-                    reference_outputs.push(reference.synthesize(text, voice, alpha)?);
-                }
-                compare_outputs(&reference_outputs, &last_outputs)
-            };
+        let (correctness_passed, correctness_summary) = if self.skip_correctness {
+            (
+                false,
+                "correctness comparison skipped by --skip-correctness".to_string(),
+            )
+        } else if actual_backend == BackendKind::BurnNdArray {
+            (
+                true,
+                "Burn NdArray reference output is finite and non-empty".to_string(),
+            )
+        } else {
+            let (_model, reference) = load_runtime(model_id, Some("burn-ndarray"))?;
+            let mut reference_outputs = Vec::with_capacity(corpus.len());
+            for text in corpus {
+                reference_outputs.push(reference.synthesize(text, voice, alpha)?);
+            }
+            compare_outputs(&reference_outputs, &last_outputs)
+        };
 
         let warm_median_ms = percentile(&mut elapsed_ms, 50);
         let warm_p95_ms = percentile(&mut elapsed_ms, 95);
@@ -175,6 +196,8 @@ impl BackendBenchmarkArgs {
             .ok_or_else(|| eyre::eyre!("benchmark sample duration overflowed"))?
             .checked_div(u64::from(runtime.sample_rate_hz()))
             .ok_or_else(|| eyre::eyre!("sample rate cannot be zero"))?;
+        let total_elapsed_ms = elapsed_ms.iter().sum::<f64>();
+        let real_time_factor = real_time_factor(total_elapsed_ms, output_duration_ms);
         let device_identity = backend_receipts::device_identity();
         let prepared = model_registry::inspect_prepared_model_dir(
             model_registry::find_model(model_id)
@@ -196,6 +219,8 @@ impl BackendBenchmarkArgs {
             measurement_count,
             warm_median_ms,
             warm_p95_ms,
+            model_load_ms,
+            real_time_factor,
             output_sample_count,
             output_duration_ms,
         };
@@ -216,6 +241,8 @@ impl BackendBenchmarkArgs {
             measurement_count,
             warm_median_ms,
             warm_p95_ms,
+            model_load_ms,
+            real_time_factor,
             output_sample_count,
             output_duration_ms,
             correctness_passed,
@@ -288,6 +315,18 @@ fn percentile(values: &mut [f64], percentile: usize) -> f64 {
     let rank = values.len().saturating_mul(percentile).saturating_add(99) / 100;
     let index = rank.saturating_sub(1);
     values[index.min(values.len().saturating_sub(1))]
+}
+
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "Benchmark durations are human-scale and fit exactly enough for a ratio."
+)]
+fn real_time_factor(total_elapsed_ms: f64, output_duration_ms: u64) -> f64 {
+    if output_duration_ms == 0 {
+        f64::INFINITY
+    } else {
+        total_elapsed_ms / output_duration_ms as f64
+    }
 }
 
 #[cfg(test)]

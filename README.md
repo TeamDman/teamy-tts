@@ -41,6 +41,9 @@ HiFiGAN loading, and `write`/`say` WAV output. `interactive` keeps the prepared
 model loaded while it reads, writes, and plays one line at a time. Raw upstream
 TorchScript conversion is still a development-time step, and full
 cleaner/reference parity plus clean-device packaging remain release gates. The
+plain CUDA build also contains a backend-native `CubeCL` LSTM kernel; the
+portable packed Burn implementation remains the fallback for fused and
+all-backends builds. The
 executable plan is in
 [PLAN.md](PLAN.md).
 
@@ -79,6 +82,12 @@ cargo run --release -- say --model glados --backend burn "hello!"
 # Benchmark the Burn candidates on an RTX 4090.
 cargo run --release -- backend benchmark --backend burn-ndarray
 cargo run --release -- backend benchmark --backend burn-cuda-acoustic
+
+# The plain CUDA build enables the backend-native CubeCL recurrent kernel.
+# `all-backends` remains the portable comparison distribution and uses the
+# packed recurrent fallback when Burn fusion/WGPU/Vulkan change the CUDA alias.
+cargo run --no-default-features --features cuda --release -- `
+  backend benchmark --backend burn-cuda-acoustic
 
 # Build and benchmark Burn fusion/autotune as a separate candidate.
 cargo run --no-default-features --features burn-cuda-fused --release -- `
@@ -129,6 +138,12 @@ cargo build --release --features all-backends
 toolchain. Burn's `tch` candidate is intentionally opt-in because it requires
 the newer LibTorch version selected by `tch` 0.22; build it separately with
 `--features burn-tch` after provisioning that matching runtime.
+
+The opt-in Burn-tch path specializes the GRU, CBHG, and LSTM boundaries with
+LibTorch tensor operations while retaining Burn-owned modules and Burnpack
+artifacts. Its current follow-up is persistent contiguous cuDNN parameter
+storage, which should remove the repeated weight-repacking warning and reduce
+the long-form latency tail.
 
 The repository's `update.ps1` is the normal Windows installation bootstrap.
 It builds with `all-backends`, uses `LIBTORCH` only during compilation, copies
@@ -257,6 +272,8 @@ Backend evidence can be inspected and generated with:
 cargo run --release -- backend list
 cargo run --release -- backend benchmark --backend burn-ndarray
 cargo run --release -- backend benchmark --backend burn-cuda-acoustic
+cargo run --release -- backend benchmark --backend burn-cuda-acoustic `
+  --corpus glados-long-v1 --warmup 1 --measurements 1 --skip-correctness
 cargo run --no-default-features --features burn-cuda-fused --release -- `
   backend benchmark --backend burn-cuda-fused
 cargo run --release --features torchscript -- backend benchmark --backend libtorch
@@ -282,28 +299,29 @@ the Burn graph. The probe
 reports separate cold and warm dispatch timings so shader/pipeline setup is
 not confused with reusable inference work.
 
-On the inspected RTX 4090, the latest matrix run used the `glados-short-v1`
-two-text corpus and measured:
+An earlier full matrix run on the inspected RTX 4090 used the
+`glados-short-v1` two-text corpus and measured the candidates before the
+packed recurrent checkpoint:
 
 | Candidate | Warm median | Correctness | Notes |
 |---|---:|---|---|
 | `burn-ndarray` | 40,491 ms | pass | CPU reference |
 | `burn` | 2,080 ms | control | CPU acoustic plus CUDA vocoder |
 | `burn-cuda-acoustic` | 339 ms | pass | Both neural graphs on Burn CUDA |
-| `burn-cuda-fused` | 3,967 ms | fail | Output length changed: 41,216 vs 40,960 samples |
+| `burn-cuda-fused` | 3,967 ms | fail | Historical pre-fix result: 41,216 vs 40,960 samples |
 | `burn-wgpu` | 4,267 ms | pass | WGPU automatic graphics API selection |
 | `burn-vulkan` | 4,759 ms | pass | Burn explicit Vulkan/SPIR-V; first-use kernel compilation included |
 | `libtorch` | 340 ms | pass | Direct upstream TorchScript through native LibTorch |
 | `vulkan` | 834 ms | pass | Specialized Ash Vulkan path |
-| `burn-tch` | 492 ms | fail | LibTorch 2.9; output length changed: 41,216 vs 40,960 samples |
+| `burn-tch` | 492 ms | historical fail | Pre-specialization LibTorch 2.9 run; output length changed: 41,216 vs 40,960 samples |
 
 These are single-measurement diagnostic runs with candidate-specific warmup
 counts (zero or one), not release performance claims. The Burn WGPU and Burn
 Vulkan receipts include first-use graphics compilation in their single
 measurements. Burn tch is now compiled and measured against its matching
-LibTorch 2.9 runtime, but its output-shape mismatch keeps it out of automatic
-selection. The Burn tch row is an explicit toolchain boundary, not a claim that
-Burn and direct LibTorch are the same backend. After moving the CBHG postnet off Burn, recording the
+LibTorch 2.9 runtime; the historical output-shape mismatch was fixed at the
+shared duration boundary. The Burn tch row is an explicit toolchain boundary,
+not a claim that Burn and direct LibTorch are the same backend. After moving the CBHG postnet off Burn, recording the
 postnet and vocoder in one Vulkan batch, and replacing per-tensor Vulkan memory
 allocations with an arena, a stabilized one-warmup/three-measurement release
 benchmark measured Vulkan at `1314.138 ms` median with
@@ -313,6 +331,52 @@ batch removes the intermediate host round-trip, but Vulkan remains an explicit
 experimental override while its allocation, dispatch, and latency costs are
 profiled; `backend list` and `--backend auto` select LibTorch when its
 Python-free native runtime and model directory are available.
+
+The packed-gate Burn GRU/LSTM checkpoint was also measured against a
+representative long-form workload on the inspected RTX 4090. Plain CUDA now
+adds a backend-native `CubeCL` bidirectional LSTM kernel over Burn's CUDA tensor
+handles; fused/all-backends builds retain the packed fallback because Burn's
+fusion, WGPU, and explicit Vulkan features change the `Cuda` primitive alias.
+The Burnpack module layout remains unchanged:
+
+| Candidate | Warm median | Output duration | Real-time factor | Correctness |
+|---|---:|---:|---:|---|
+| `burn-cuda-acoustic` (packed) | 2,142.106 ms | 8,591 ms | 0.2493 | short corpus pass; long comparison skipped |
+| `burn-cuda-acoustic` (CubeCL, plain `cuda`) | 1,930.462 ms | 8,591 ms | 0.2247 | short corpus pass; long comparison skipped |
+| `libtorch` | 371.905 ms | 8,591 ms | 0.0433 | short corpus pass; long comparison skipped |
+| `burn-tch` (fused GRU/CBHG/LSTM) | 271.760 ms | 8,591 ms | 0.0333 | short corpus pass; long comparison skipped |
+
+Both rows generated `189,440` samples. The long corpus is diagnostic because
+the CPU NdArray reference takes several minutes at this frame count;
+`--skip-correctness` explicitly prevents its receipt from influencing
+`--backend auto`. Both Burn paths retain the original Burnpack module layout;
+the packed path combines compatible recurrent gate projections, while the
+plain-CUDA path computes the LSTM recurrence in one `CubeCL` launch per
+direction. The CubeCL first-use compilation is excluded by the benchmark
+warmup, so this is a warm performance checkpoint rather than a new model
+format.
+
+The duration-shape drift in the fused candidate is corrected at the shared
+frame conversion boundary. Values within `0.004` of a half-frame use
+PyTorch-style tie-to-even rounding; the affected fused item now produces 160
+frames and 40,960 samples, matching the NdArray reference. Its refreshed
+short-corpus receipt passes with `relative_rms_error=0.070197` and a
+`262.981 ms` warm median. This correction is separate from the remaining
+kernel-launch overhead that keeps the plain Burn CUDA path behind the direct
+LibTorch oracle. The Burn-tch candidate now uses LibTorch's fused GRU, CBHG
+tensor, and LSTM operations while retaining the Burn module layout and runtime
+contract. Its long-form receipt reports a `271.760 ms` warm median
+(`316.495 ms` p95), and its short correctness receipt passes with
+`relative_rms_error=0.071774`.
+
+The refreshed one-warmup/one-measurement short-corpus checkpoint is:
+
+| Candidate | Warm median | Correctness |
+|---|---:|---|
+| `burn-cuda-acoustic` (packed) | 270.525 ms | pass |
+| `burn-cuda-acoustic` (CubeCL, plain `cuda`) | 271.804 ms | pass |
+| `burn-cuda-fused` | 262.981 ms | pass |
+| `libtorch` | 74.186 ms | pass |
 
 A later device-local model/batch build passed the shared correctness gate at
 `1303.979 ms` median in an earlier three-sample run. After narrowing the fixed
