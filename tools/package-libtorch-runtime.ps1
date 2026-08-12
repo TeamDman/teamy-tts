@@ -15,6 +15,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$expectedLibTorchBuild = '2.11.0+cu128'
+
 $executable = (Resolve-Path -LiteralPath $ExecutablePath).Path
 if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
     throw "Executable is not a file: $executable"
@@ -24,6 +26,20 @@ $libtorch = (Resolve-Path -LiteralPath $LibTorchRoot).Path
 $libDir = Join-Path $libtorch 'lib'
 if (-not (Test-Path -LiteralPath $libDir -PathType Container)) {
     throw "LibTorch lib directory is missing: $libDir"
+}
+$buildVersionPath = Join-Path $libtorch 'build-version'
+if (-not (Test-Path -LiteralPath $buildVersionPath -PathType Leaf)) {
+    throw "LibTorch build-version file is missing: $buildVersionPath"
+}
+$actualLibTorchBuild = (Get-Content -LiteralPath $buildVersionPath -Raw).Trim()
+if ($actualLibTorchBuild -ne $expectedLibTorchBuild) {
+    throw "Unsupported LibTorch build '$actualLibTorchBuild'; teamy-tts is pinned to '$expectedLibTorchBuild'."
+}
+foreach ($requiredNativeFile in @('torch_cuda.dll', 'torch_cuda.lib')) {
+    $requiredNativePath = Join-Path $libDir $requiredNativeFile
+    if (-not (Test-Path -LiteralPath $requiredNativePath -PathType Leaf)) {
+        throw "Required LibTorch native file is missing: $requiredNativePath"
+    }
 }
 
 $output = [IO.Path]::GetFullPath($OutputDir)
@@ -46,6 +62,7 @@ foreach ($dll in $runtimeDlls) {
 $manifest = [ordered]@{
     schema_version = 1
     runtime = 'libtorch'
+    libtorch_build = $actualLibTorchBuild
     python_required = $false
     torch_python_included = [bool]$IncludeTorchPython
     executable = [IO.Path]::GetFileName($executableTarget)

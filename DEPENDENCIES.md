@@ -111,18 +111,20 @@ being developed for a later tch-rs line.
 
 With `tch 0.24.0` and LibTorch 2.11.0+cu128, the direct Rust `tch::CModule`
 path loaded the upstream graphs, detected one CUDA device, and passed the
-short waveform smoke test on the RTX 4090:
+finite/stable waveform gate plus canonical sample-count check on the RTX 4090:
 
 ```text
 workload: Hello, friend
-model_load_ms: 2548
+model_load_ms: 2590
 warmups: 2
 measurements: 5
-warm measurement_ms: 49, 52, 53, 56, 56
-median_ms: 53
-p95_ms: 56
+warm measurement_ms: 56, 57, 57, 60, 62
+median_ms: 57
+p95_ms: 62
 sample_count: 26880
 audio_duration_ms: 1219
+correctness_passed: true
+correctness_gate: finite, stable waveform plus canonical Hello, friend sample-count check (26880)
 ```
 
 The earlier `tch 0.22`/PyTorch 2.9 CPU result (232 ms median, 253 ms p95) is

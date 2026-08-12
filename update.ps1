@@ -17,6 +17,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$expectedLibTorchBuild = '2.11.0+cu128'
+
 if ([string]::IsNullOrWhiteSpace($LibTorchRoot)) {
     throw "LibTorch is required for the tch build. Pass -LibTorchRoot <path> or set LIBTORCH to the matching tch/LibTorch release."
 }
@@ -25,6 +27,20 @@ $resolvedLibTorchRoot = (Resolve-Path -LiteralPath $LibTorchRoot).Path
 $libTorchLibDir = Join-Path $resolvedLibTorchRoot 'lib'
 if (-not (Test-Path -LiteralPath $libTorchLibDir -PathType Container)) {
     throw "LibTorch lib directory is missing: $libTorchLibDir"
+}
+$buildVersionPath = Join-Path $resolvedLibTorchRoot 'build-version'
+if (-not (Test-Path -LiteralPath $buildVersionPath -PathType Leaf)) {
+    throw "LibTorch build-version file is missing: $buildVersionPath"
+}
+$actualLibTorchBuild = (Get-Content -LiteralPath $buildVersionPath -Raw).Trim()
+if ($actualLibTorchBuild -ne $expectedLibTorchBuild) {
+    throw "Unsupported LibTorch build '$actualLibTorchBuild'; teamy-tts is pinned to '$expectedLibTorchBuild'."
+}
+foreach ($requiredNativeFile in @('torch_cuda.dll', 'torch_cuda.lib')) {
+    $requiredNativePath = Join-Path $libTorchLibDir $requiredNativeFile
+    if (-not (Test-Path -LiteralPath $requiredNativePath -PathType Leaf)) {
+        throw "Required LibTorch native file is missing: $requiredNativePath"
+    }
 }
 
 # tch's build script consumes LIBTORCH while compiling its native bindings. This assignment is

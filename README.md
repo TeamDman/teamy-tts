@@ -96,20 +96,22 @@ configuration so future invocations do not need environment variables.
 ## Benchmark status
 
 The benchmark command reports model-load time, warmup count, sorted measured
-latencies, median, p95, sample count, and generated audio duration. A local
-final-pair probe using `tch 0.24.0` and LibTorch 2.11.0+cu128 passed the
-waveform smoke test on the RTX 4090:
+latencies, median, p95, sample count, generated audio duration, and an explicit
+correctness gate. A local probe using `tch 0.24.0` and LibTorch 2.11.0+cu128
+passed the finite/stable waveform gate and canonical sample-count check on the
+RTX 4090:
 
 | Runtime | Workload | Median | P95 | Result |
 |---|---|---:|---:|---|
-| tch 0.24.0 / LibTorch 2.11.0+cu128 CUDA | `Hello, friend` | 53 ms | 56 ms | provisional RTX 4090 receipt |
+| tch 0.24.0 / LibTorch 2.11.0+cu128 CUDA | `Hello, friend` | 57 ms | 62 ms | correctness-gated RTX 4090 receipt |
 
-The cold model load, including the configured two initialization warmups, was
-2,548 ms; the generated audio contained 26,880 samples (1,219 ms). A Windows
-MSVC CUDA-link anchor is included because the published tch-rs 0.24 line can
-otherwise have the linker drop the `torch_cuda.dll` import. The benchmark must
-still be repeated after the new tch-native bundle is rehosted and packaged for
-a clean machine.
+The benchmark reported a 2,590 ms model load; the generated audio contained
+26,880 samples (1,219 ms). The gate rejects empty or non-finite samples and
+unstable output lengths, and checks the canonical sample count for this exact
+workload. A Windows MSVC CUDA-link anchor is included because the published
+tch-rs 0.24 line can otherwise have the linker drop the `torch_cuda.dll`
+import. The benchmark must still be repeated after the new tch-native bundle
+is rehosted and acquired from a clean cache.
 
 See [DEPENDENCIES.md](DEPENDENCIES.md) for the dependency decision and
 [PLAN.md](PLAN.md) for the resumable implementation ledger.

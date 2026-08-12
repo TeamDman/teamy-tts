@@ -13,7 +13,7 @@ documentation = "https://github.com/TeamDman/teamy-tts" # "https://docs.rs/crate
 
 [dependencies]
 arbitrary = { version = "1.4.1", features = ["derive"] }
-"tch" = { version = "0.24.0", optional = true }
+"tch" = { version = "=0.24.0", optional = true }
 chrono = "0.4"
 color-eyre = "0.6.5"
 eyre = "0.6.12"

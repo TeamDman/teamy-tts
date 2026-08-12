@@ -3,8 +3,9 @@
 Status: the backend-comparison checkpoint is preserved, while `main` is being
 reshaped into a single tch/LibTorch runtime. The direct Rust `tch::CModule`
 runtime now compiles against tch 0.24/LibTorch 2.11, detects the RTX 4090, and
-has a provisional correctness-gated warm benchmark receipt. Model-bundle
-rehosting and a clean-machine distribution rehearsal remain open.
+has a correctness-gated warm benchmark receipt. The packaged executable also
+passes with adjacent native DLLs. Model-bundle rehosting and a clean-cache
+distribution rehearsal remain open.
 Plan owner: Teamy
 Plan path: G:\Programming\Repos\teamy-tts\PLAN.md
 Last updated: 2026-08-12
@@ -1574,8 +1575,8 @@ this slice.
 
 Evidence: [DEPENDENCIES.md](DEPENDENCIES.md). The final pair compiles and the
 CUDA-link anchor makes `tch::Cuda::is_available()` report one RTX 4090 device.
-The short receipt is 53 ms median / 56 ms p95 after two warmups, with 2,548 ms
-model load and 26,880 generated samples.
+The short correctness-gated receipt is 57 ms median / 62 ms p95 after two
+warmups, with 2,590 ms model load and 26,880 generated samples.
 
 #### W26 [x] Reshape `main` into the single tch runtime
 
@@ -1589,8 +1590,9 @@ the two voice embeddings. The new `benchmark` command emits cold-load and
 warm-latency JSON evidence.
 
 Validation: `cargo check --all-targets`, `cargo test --all-targets`, model
-preparation, and the RTX 4090 benchmark pass with LibTorch 2.11.0+cu128 on the
-MSVC toolchain. The generated tch-native archive is
+preparation, correctness-gated RTX 4090 benchmarking, and an adjacent-DLL
+package rehearsal pass with LibTorch 2.11.0+cu128 on the MSVC toolchain. The
+generated tch-native archive is
 `5fc80b76584ef7c078a417fb53e09fa8477b211e26458ad1ee8f4a25cf626e0f` and is
 ready for the next Cloudflare publication step.
 

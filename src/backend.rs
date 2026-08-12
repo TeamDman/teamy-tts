@@ -3,7 +3,7 @@
 use eyre::Result;
 use std::fmt;
 
-/// The only supported runtime is direct Rust access to LibTorch through tch.
+/// The only supported runtime is direct Rust access to `LibTorch` through tch.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BackendSelection {
     /// Retained as a configuration spelling during migration; it resolves to
@@ -16,11 +16,14 @@ pub enum BackendSelection {
 
 impl BackendSelection {
     /// Parse the stable configuration spelling.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a caller supplies a backend name other than the
+    /// accepted compatibility spellings.
     pub fn parse(value: Option<&str>) -> Result<Self> {
         match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
-            None | Some("auto") | Some("libtorch") | Some("torchscript") | Some("tch") => {
-                Ok(Self::LibTorch)
-            }
+            None | Some("auto" | "libtorch" | "torchscript" | "tch") => Ok(Self::LibTorch),
             Some(other) => {
                 eyre::bail!("unknown backend {other:?}; teamy-tts supports only tch/LibTorch")
             }
