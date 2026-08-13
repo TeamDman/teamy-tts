@@ -32,6 +32,15 @@ struct SourceDefinition {
     native_url: Option<&'static str>,
 }
 
+/// A model endpoint that diagnostics may probe without exposing its URL in a
+/// user-facing report.
+#[derive(Clone, Debug)]
+pub struct DiagnosticSourceEndpoint {
+    pub source: &'static str,
+    pub artifact: &'static str,
+    pub url: Option<String>,
+}
+
 const SOURCES: &[SourceDefinition] = &[
     SourceDefinition {
         id: "Teamy",
@@ -50,6 +59,34 @@ const SOURCES: &[SourceDefinition] = &[
         native_url: None,
     },
 ];
+
+/// Resolve the configured public endpoints for diagnostics.
+///
+/// The returned URLs are for internal probing only. Callers must not include
+/// them in reports because an environment override may contain a signed URL.
+/// Sources without a baked-in or configured URL are returned with `url: None`
+/// so diagnostics can report them as unconfigured rather than silently omit
+/// them.
+///
+/// # Errors
+///
+/// Returns an error when a configured URL environment variable cannot be read.
+pub fn diagnostic_source_endpoints() -> Result<Vec<DiagnosticSourceEndpoint>> {
+    let mut endpoints = Vec::new();
+    for source in SOURCES {
+        endpoints.push(DiagnosticSourceEndpoint {
+            source: source.id,
+            artifact: "raw-model-archive",
+            url: configured_source_url(source.raw_url_env_var, source.raw_url)?,
+        });
+        endpoints.push(DiagnosticSourceEndpoint {
+            source: source.id,
+            artifact: "native-bundle",
+            url: configured_source_url(source.native_url_env_var, source.native_url)?,
+        });
+    }
+    Ok(endpoints)
+}
 
 /// The durable receipt emitted after an archive has passed verification.
 #[derive(Debug, Facet)]
@@ -332,17 +369,22 @@ fn resolve_source_url(
     default_url: Option<&str>,
     artifact_description: &str,
 ) -> Result<String> {
+    configured_source_url(environment_variable, default_url)?.ok_or_else(|| {
+        eyre!(
+            "{artifact_description} source {source_id} is not configured; set {environment_variable} to its HTTPS archive URL"
+        )
+    })
+}
+
+fn configured_source_url(
+    environment_variable: &str,
+    default_url: Option<&str>,
+) -> Result<Option<String>> {
     match std::env::var(environment_variable) {
-        Ok(value) if !value.trim().is_empty() => Ok(value),
+        Ok(value) if !value.trim().is_empty() => Ok(Some(value)),
         Ok(_) => bail!("{environment_variable} cannot be empty"),
-        Err(std::env::VarError::NotPresent) => default_url.map(str::to_owned).ok_or_else(|| {
-            eyre!(
-                "{artifact_description} source {source_id} is not configured; set {environment_variable} to its HTTPS archive URL"
-            )
-        }),
-        Err(error) => Err(error).wrap_err_with(|| {
-            format!("failed to read {environment_variable} for source {source_id}")
-        }),
+        Err(std::env::VarError::NotPresent) => Ok(default_url.map(str::to_owned)),
+        Err(error) => Err(error).wrap_err_with(|| format!("failed to read {environment_variable}")),
     }
 }
 

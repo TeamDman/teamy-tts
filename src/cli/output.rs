@@ -37,6 +37,7 @@ trait CliOutputValue {
 
 struct FacetCliOutput<T> {
     value: T,
+    csv: Option<String>,
 }
 
 impl CliOutput {
@@ -50,7 +51,24 @@ impl CliOutput {
     where
         T: Facet<'static> + 'static,
     {
-        Self(Some(Box::new(FacetCliOutput { value })))
+        Self(Some(Box::new(FacetCliOutput { value, csv: None })))
+    }
+
+    /// Return a typed output value with an explicit flat CSV projection.
+    ///
+    /// Facet CSV intentionally rejects nested structures and sequences. This
+    /// keeps those limitations in the shared output layer while allowing a
+    /// command such as `doctor` to expose one row per diagnostic check without
+    /// changing its canonical text or JSON report.
+    #[must_use]
+    pub fn facet_with_csv<T>(value: T, csv: String) -> Self
+    where
+        T: Facet<'static> + 'static,
+    {
+        Self(Some(Box::new(FacetCliOutput {
+            value,
+            csv: Some(csv),
+        })))
     }
 
     /// # Errors
@@ -111,8 +129,11 @@ where
                 .format(&self.value),
             OutputFormat::Json => facet_json::to_string_pretty(&self.value)
                 .wrap_err("failed to serialize command output as JSON")?,
-            OutputFormat::Csv => facet_csv::to_string(&self.value)
-                .wrap_err("failed to serialize command output as CSV")?,
+            OutputFormat::Csv => match self.csv.as_deref() {
+                Some(csv) => csv.to_string(),
+                None => facet_csv::to_string(&self.value)
+                    .wrap_err("failed to serialize command output as CSV")?,
+            },
         };
         Ok(Some(rendered))
     }

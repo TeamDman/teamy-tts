@@ -1,4 +1,4 @@
-//! LibTorch-owned GLaDOS runtime components.
+//! `LibTorch`-owned `GLaDOS` runtime components.
 
 pub mod tch_torchscript;
 

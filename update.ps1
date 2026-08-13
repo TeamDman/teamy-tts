@@ -5,10 +5,6 @@ param(
     # LibTorch release paired with the tch version pinned in Cargo.toml.
     [string]$LibTorchRoot = $env:LIBTORCH,
 
-    # This value is written to teamy-tts config.json once; it is not required
-    # as an environment variable after installation.
-    [string]$TorchModelDir = $env:TEAMY_TTS_TORCH_MODEL_DIR,
-
     # Keep a custom Cargo installation root working while making the installed
     # executable location explicit for the DLL and config bootstrap steps.
     [string]$CargoRoot = $env:CARGO_HOME
@@ -87,25 +83,6 @@ foreach ($dll in $runtimeDlls) {
     Copy-Item -LiteralPath $dll.FullName -Destination (Join-Path $installedBinDir $dll.Name) -Force
 }
 
-if ([string]::IsNullOrWhiteSpace($TorchModelDir)) {
-    $knownTorchModelDir = 'G:\ml\glados-tts-upstream\models'
-    if (Test-Path -LiteralPath $knownTorchModelDir -PathType Container) {
-        $TorchModelDir = $knownTorchModelDir
-    }
-}
-
-if (-not [string]::IsNullOrWhiteSpace($TorchModelDir)) {
-    $resolvedTorchModelDir = (Resolve-Path -LiteralPath $TorchModelDir).Path
-    & $installedExecutable config set --torch-model-dir $resolvedTorchModelDir
-    if ($LASTEXITCODE -ne 0) {
-        throw "teamy-tts config bootstrap failed with exit code $LASTEXITCODE"
-    }
-}
-
 Write-Output "Installed tch/LibTorch teamy-tts at $installedExecutable"
 Write-Output "Copied $($runtimeDlls.Count) LibTorch runtime DLLs beside the executable"
-if (-not [string]::IsNullOrWhiteSpace($TorchModelDir)) {
-    Write-Output "Remembered TorchScript model directory: $resolvedTorchModelDir"
-} else {
-    Write-Output 'No TorchScript model directory was configured; use teamy-tts config set --torch-model-dir <path> when needed.'
-}
+Write-Output 'Existing teamy-tts configuration was left unchanged; use teamy-tts config set --torch-model-dir <path> for one-time model setup.'

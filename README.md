@@ -42,11 +42,33 @@ teamy-tts interactive
 
 # Produce JSON benchmark evidence without creating or playing output files.
 teamy-tts benchmark "Hello, friend" --warmups 2 --measurements 5
+
+# Diagnose the local installation without changing it.
+teamy-tts doctor --offline
+teamy-tts --output-format json doctor --deep
 ```
 
 `write` defaults to `outputs/0001 <text>.wav`. Use `--output-dir` for an
 automatic numbered-output directory or `--output` for an explicit filename.
 The written path is emitted on stdout; structured tracing remains on stderr.
+
+`doctor` reports configuration and precedence, model-cache and manifest
+health, the external TorchScript directory, LibTorch/CUDA capability, audio
+support, and public model-server reachability. It performs no repair and does
+not modify configuration, model files, or output files. The default shallow
+check avoids loading the large models; `--deep` verifies artifact hashes,
+loads the actual runtime, and runs an in-memory synthesis smoke test.
+
+Use `--offline` to skip network probes. The report has a versioned typed JSON
+shape with stable check IDs, `pass`/`warn`/`fail`/`skip` statuses, evidence,
+and suggested next commands. It never includes access tokens or credential
+values. `--output-format text`, `json`, and `csv` are global options; CSV is a
+flat one-row-per-check projection of the same diagnostic facts.
+
+The process exits successfully when the diagnostic report itself was produced;
+individual health failures are represented by the report's aggregate `status`
+and check statuses so redirected JSON remains clean and useful to scripts or
+an LLM.
 
 ## Model acquisition and preparation
 
@@ -89,9 +111,15 @@ cargo build --release
 cargo test --all-targets
 ```
 
-`update.ps1` builds and installs the executable, copies the LibTorch DLLs
-beside it, and remembers the TorchScript model directory in the application
-configuration so future invocations do not need environment variables.
+`update.ps1` builds and installs the executable and copies the LibTorch DLLs
+beside it. It does not modify the application configuration. Set the
+TorchScript model directory once, when needed:
+
+```powershell
+teamy-tts config set --torch-model-dir 'C:\Models\teamy-tts\glados'
+```
+
+Future updates preserve that remembered configuration.
 
 ## Benchmark status
 

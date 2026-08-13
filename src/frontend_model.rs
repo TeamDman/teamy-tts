@@ -1,7 +1,7 @@
-//! Direct tch implementation of the upstream DeepPhonemizer forward model.
+//! Direct `tch` implementation of the upstream `DeepPhonemizer` forward model.
 //!
-//! The checkpoint is exported by tools/export_glados_phonemizer.py as a
-//! named PyTorch tensor archive. Keeping the model in LibTorch tensors avoids
+//! The checkpoint is exported by `tools/export_glados_phonemizer.py` as a
+//! named `PyTorch` tensor archive. Keeping the model in `LibTorch` tensors avoids
 //! a Burnpack dependency while preserving the exact native architecture.
 
 use eyre::Context;
@@ -160,7 +160,7 @@ impl EncoderLayer {
     }
 }
 
-/// The native LibTorch DeepPhonemizer model used for dictionary misses.
+/// The native `LibTorch` `DeepPhonemizer` model used for dictionary misses.
 #[derive(Debug)]
 pub struct GladosPhonemizer {
     variables: nn::VarStore,
@@ -174,6 +174,11 @@ pub struct GladosPhonemizer {
 
 impl GladosPhonemizer {
     /// Load the exported named tensor archive on the CPU.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the tensor archive cannot be loaded into the
+    /// expected named model variables.
     pub fn from_file(path: &Path) -> eyre::Result<Self> {
         let variables = nn::VarStore::new(Device::Cpu);
         let root = variables.root();
@@ -211,8 +216,13 @@ impl GladosPhonemizer {
     }
 
     /// Predict IPA for one dictionary-missing word.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the word contains unsupported characters or the
+    /// model output cannot be converted into IPA symbols.
     pub fn phonemize_word(&self, word: &str) -> eyre::Result<String> {
-        let logits = self.forward(self.input_for_word(word)?);
+        let logits = self.forward(&Self::input_for_word(word)?);
         let indices = logits.argmax(-1, false).to_device(Device::Cpu).view([-1]);
         let indices =
             Vec::<i64>::try_from(indices).wrap_err("failed to read tch phonemizer output")?;
@@ -243,7 +253,7 @@ impl GladosPhonemizer {
         Ok(output)
     }
 
-    fn input_for_word(&self, word: &str) -> eyre::Result<Tensor> {
+    fn input_for_word(word: &str) -> eyre::Result<Tensor> {
         let mut values = vec![2_i64];
         for character in word.chars() {
             let Some(index) = text_symbol_index(character) else {
@@ -256,12 +266,14 @@ impl GladosPhonemizer {
             values.extend([index, index, index]);
         }
         values.push(3);
-        Ok(Tensor::from_slice(&values).reshape([1, values.len() as i64]))
+        let sequence_length =
+            i64::try_from(values.len()).wrap_err("phonemizer input sequence length exceeds i64")?;
+        Ok(Tensor::from_slice(&values).reshape([1, sequence_length]))
     }
 
-    fn forward(&self, tokens: Tensor) -> Tensor {
+    fn forward(&self, tokens: &Tensor) -> Tensor {
         let sequence_length = tokens.size()[1];
-        let mut output = Tensor::embedding(&self.embedding, &tokens, -1, false, false);
+        let mut output = Tensor::embedding(&self.embedding, tokens, -1, false, false);
         let position = self
             .positional_encoding
             .narrow(0, 0, sequence_length)

@@ -1,24 +1,27 @@
 # teamy-tts implementation plan
 
-Status: the backend-comparison checkpoint is preserved, while `main` is being
-reshaped into a single tch/LibTorch runtime. The direct Rust `tch::CModule`
-runtime now compiles against tch 0.24/LibTorch 2.11, detects the RTX 4090, and
-has a correctness-gated warm benchmark receipt. The packaged executable also
-passes with adjacent native DLLs. Model-bundle rehosting and a clean-cache
-distribution rehearsal remain open.
+Status: the backend-comparison checkpoint is preserved, while `main` is now a
+single tch/LibTorch runtime. The direct Rust `tch::CModule` runtime compiles
+against tch 0.24/LibTorch 2.11, detects the RTX 4090, and has a
+correctness-gated warm benchmark receipt. The packaged executable also passes
+with adjacent native DLLs. The next implementation goal is a typed `doctor`
+diagnostic surface that reuses the teamy-rust-cli output contract and helps a
+consumer or LLM identify missing model, native-runtime, CUDA, audio, or model
+server prerequisites without self-repairing them.
 Plan owner: Teamy
 Plan path: G:\Programming\Repos\teamy-tts\PLAN.md
 Last updated: 2026-08-12
 Current focus: [x] preserve the historical backend comparison; [x] remove
 non-tch code and migrate the prepared bundle to TorchScript artifacts; [x] pin
-the final single-backend Torch/CUDA toolchain; [~] repeat the benchmark after
-rehosting the new bundle and complete a clean-machine distribution rehearsal.
+the final single-backend Torch/CUDA toolchain; [x] add and validate the typed
+`doctor` report; [~] complete the final external distribution rehearsal.
 
 **Plan status:** Active
 **Primary implementation root:** `G:\Programming\Repos\teamy-tts`
-**Intent audit:** Passed 2026-08-10 for the backend abstraction, receipt-backed
-selection, and Vulkan hybrid milestone; the full Vulkan acoustic boundary and
-performance decision remain explicitly open.
+**Intent audit:** Passed 2026-08-12 for the doctor-surface slice against the
+available current guidance and the durable ledger below. Historical details
+from earlier compacted conversation are represented by T1-T30 and their
+existing evidence; they were not silently re-derived.
 
 This is the living work contract for turning the local GLaDOS TTS upstream
 project into a downloadable Rust command-line application with one optimized
@@ -43,6 +46,11 @@ on `backend-comparison` but is not a `main` product dependency.
    one fake common tensor type.
 8. Treat warm, correctness-checked benchmark evidence as the basis for
    backend selection; do not make `auto` choose from a single successful WAV.
+9. Return command reports through `CliOutput` and the global `--output-format`
+   renderer; do not create a doctor-specific output protocol.
+10. Keep doctor diagnostic reports safe for text, JSON, and CSV rendering:
+    report secret availability and provenance, never secret values, and do not
+    make diagnostics mutate configuration or repair the installation.
 
 ## Intent audit evidence
 
@@ -75,6 +83,12 @@ on `backend-comparison` but is not a `main` product dependency.
   Vulkan uses a repository Cargo patch to the matching CubeCL v0.8.1 sources
   because `cubecl-spirv` 0.8.1 is not published to crates.io; it remains
   distinct from both Burn WGPU and Ash Vulkan.
+- **Doctor-slice audit:** Pass 1 extracted the new requirements as T31-T34;
+  Pass 2 maps them to G20-G23, W28-W31, and A31-A33; Pass 3 checked that the
+  design preserves the template's one-time `CliOutput` emission, treats
+  `#[facet(sensitive)]` as a defense-in-depth annotation rather than a reason
+  to serialize secrets, and keeps self-repair and model embedding out of this
+  goal.
 
 ## User guidance ledger
 
@@ -110,6 +124,10 @@ on `backend-comparison` but is not a `main` product dependency.
 | T28 | Freeze the final single-backend native Torch toolchain before cleanup: exact `tch`/`torch-sys`, LibTorch/PyTorch, CUDA toolkit, compiler, and runtime packaging versions; do not upgrade Burn because it is comparison-only. | Confirmed; `tch`/`torch-sys` 0.24.0 + LibTorch 2.11.0+cu128, MSVC, and the Windows CUDA-link workaround are validated on the RTX 4090 | W25, A28 |
 | T29 | Remove non-tch backend implementations from `main`, migrate the prepared bundle to TorchScript artifacts, and provide one benchmark command for the remaining runtime. | Confirmed in source; the historical implementations remain on `backend-comparison` | W26, A29 |
 | T30 | Rehost the tch-native bundle and rehearse the installed executable from a clean machine/PATH. | Pending deployment; archive and Terraform source path are prepared, but Cloudflare publication has not been applied in this slice | W27, A30 |
+| T31 | Make a diagnostic `teamy-tts doctor` command the next implementation goal; it should describe system health without attempting brittle self-repair. | Implemented; report generation and checks are non-mutating | G20-G23, W28-W31, A31-A33 |
+| T32 | Reuse the teamy-rust-cli `CliOutput` and top-level `--output-format` behavior so doctor is an ordinary typed command, not a special output path. | Implemented; text/JSON use the typed report and CSV uses a shared flat projection | G20, W28, A31 |
+| T33 | Use Facet-derived report types and `#[facet(sensitive)]` where appropriate, but never place raw tokens, credentials, or other secret values in doctor reports. | Implemented with safe projections and text/JSON/CSV secret tests | G21, W28-W29, A31-A33 |
+| T34 | Keep model weights and native runtime files external and independently updateable; doctor should inspect local model files, model-server availability, LibTorch, CUDA, and audio prerequisites. | Implemented; model/runtime checks are external and diagnostic-only | G22-G23, W29-W31, A32-A33 |
 
 ## Evidence inspected
 
@@ -671,6 +689,10 @@ selection remains a runtime capability recorded in each project's manifest.
 | G17 | Vulkan support boundary | Ash can dispatch Vulkan compute, but the backend must define shader compilation, device capability checks, memory ownership, and the RTX 4090 support claim. | Real compute probe, cooperative-matrix capability report where available, and honest unsupported-device behavior. |
 | G18 | Vulkan model implementation | The first Vulkan path may use fixed-shape, prepacked, handwritten kernels and need not be a generic tensor framework. | Intermediate mel and final waveform parity against the oracle plus a repeatable end-to-end benchmark. |
 | G19 | Backend selection policy | `auto` must choose from warm, correctness-checked evidence keyed by model/device/backend revision and must have an explicit fallback. | Benchmark receipt, selection test, and CLI diagnostics showing why a backend was chosen or rejected. |
+| G20 | Diagnostic output contract | `doctor` is an ordinary command returning `CliOutput::facet(report)`; global `--output-format` remains the only output-format switch. | Text/JSON/CSV rendering works through the shared top-level emission path, including redirected stdout behavior. |
+| G21 | Diagnostic data safety | Reports may expose paths, versions, hashes, presence, and redacted provenance, but never raw credentials or tokens. `#[facet(sensitive)]` is defense in depth, not the primary boundary. | Serialization tests prove text, JSON, and CSV outputs contain no secret fixtures. |
+| G22 | Health-check ownership | Checks must call the same configuration, model-registry, and runtime discovery boundaries used by synthesis; shallow checks must not load heavyweight models unnecessarily. | Unit tests for pure checks, integration tests for discovery, and a real `doctor` invocation against the current installation. |
+| G23 | External dependency diagnostics | Model-server availability, LibTorch/CUDA state, and audio capability are reported with bounded timeouts and offline/skip semantics; no check repairs state. | Offline and reachable/unreachable fixtures distinguish local failure, network failure, and unavailable optional capability. |
 
 ## Work breakdown
 
@@ -1295,10 +1317,10 @@ The durable runtime configuration boundary is now explicit:
 - `TEAMY_TTS_BACKEND`, `TEAMY_TTS_MODEL_DIR`,
   `TEAMY_TTS_TORCH_MODEL_DIR`, and `TEAMY_TTS_TORCH_DEVICE` are temporary
   overrides rather than required setup for ordinary installed use.
-- `update.ps1` builds with `all-backends`, uses `LIBTORCH` only for that build,
-  copies the matching native DLLs beside the installed executable, and seeds
-  the remembered TorchScript model directory when one is supplied or found at
-  the known local upstream path.
+- `update.ps1` builds the tch runtime with `LIBTORCH` scoped to that build and
+  copies the matching native DLLs beside the installed executable. It leaves
+  remembered configuration untouched; model setup remains an explicit CLI
+  operation.
 
 #### W20 [x] Make installed runtime prerequisites durable and overridable
 
@@ -1309,9 +1331,8 @@ now have CLI-set remembered values. Explicit command values take priority;
 environment variables remain useful temporary overrides. The runtime,
 prepared-model path resolver, TorchScript device selection, and benchmark
 availability checks all use the same precedence rules. Updated `update.ps1`
-to install `all-backends`, set `LIBTORCH` only in its build process, copy the
-matching LibTorch DLLs beside the installed executable, and seed the remembered
-TorchScript model directory.
+to set `LIBTORCH` only in its build process and copy the matching LibTorch DLLs
+beside the installed executable without overwriting remembered settings.
 
 Validation:
 
@@ -1495,6 +1516,12 @@ removed from the roadmap.
 | A25 | Long-form recurrent scaling is measured without weakening automatic selection. | `glados-long-v1` receipt with frame count, output duration, real-time factor, model-load time, and explicit skipped-correctness status. |
 | A26 | The first packed Burn recurrent optimization preserves model compatibility and correctness. | Burnpack load, duration-boundary regression test, short waveform gate, and refreshed fused receipt. |
 | A27 | A backend-native fused Burn recurrent kernel preserves artifacts, parity, and warm-measurement boundaries. | Plain-CUDA `CubeCL` LSTM launch, short waveform gate, long-form frame/RTF receipt, portable fallback, and clippy/tests. |
+| A28 | The selected native Torch/CUDA toolchain is pinned and reproducible. | `DEPENDENCIES.md`, clean build/run evidence, CUDA-link probe, and matching LibTorch packaging record. |
+| A29 | `main` contains one direct tch/LibTorch runtime while comparison history remains preserved separately. | Source audit, all-targets build/test, model load, correctness receipt, and benchmark command. |
+| A30 | The external model bundle and adjacent native runtime work from a clean cache/PATH. | Published-object verification, clean acquisition, installed-process receipt, and no upstream/Python dependency. |
+| A31 | `doctor` uses the shared `CliOutput` and global `--output-format` contract. | Text/JSON/CSV CLI tests, redirected JSON parse, and no doctor-local renderer. |
+| A32 | `doctor` diagnoses model, configuration, LibTorch, CUDA, audio, and model-server state with shallow/deep and offline behavior. | Focused status aggregation and source-probe tests, current-machine shallow/deep run, bounded network failures, explicit offline/unconfigured skips, and remediation evidence. |
+| A33 | Doctor output is safe and non-mutating. | Text/JSON/CSV secret-fixture scan, no configuration/cache mutation, and README-documented report status/exit behavior. |
 
 ## Risks and stop conditions
 
@@ -1523,6 +1550,10 @@ removed from the roadmap.
 | R21 | Burn fusion/autotune changes duration rounding or output shape even when waveform values look plausible. | Keep fusion out of `auto` until sample-count and waveform parity pass; retain the failing receipt and investigate operation ordering/precision before relaxing the gate. |
 | R22 | Burn tch's generated LibTorch bridge is tied to a newer LibTorch ABI than the upstream TorchScript environment. | Keep `burn-tch` distinct from direct LibTorch, record the isolated 2.9 toolchain in build evidence, and do not make the candidate part of automatic selection until its output-shape parity passes. |
 | R23 | Burn's explicit Vulkan feature requests `cubecl-spirv` 0.8.1, which is not published to crates.io. | Pin the matching CubeCL v0.8.1 source family in Cargo, keep Burn WGPU and Ash Vulkan as separate paths, and retain the explicit RTX-4090 Vulkan support boundary. |
+| R24 | Doctor output leaks a token, credential, or secret-bearing environment value through a renderer. | Use safe report projections, keep secrets out of report types, annotate internal values with `#[facet(sensitive)]`, and scan text/JSON/CSV fixtures. |
+| R25 | Doctor checks drift from the behavior used by synthesis. | Reuse config/model-registry/runtime discovery functions and include a deep load/smoke path that exercises the real tch runtime. |
+| R26 | Network or native checks hang, making the diagnostic command itself unreliable. | Bound every external probe, provide `--offline`, distinguish unavailable optional capabilities, and test failure timeouts. |
+| R27 | A report schema change breaks LLM-assisted troubleshooting or scripts. | Include a schema version, keep stable check IDs/statuses, document format behavior, and add JSON contract tests. |
 
 ## Intent audit
 
@@ -1596,18 +1627,131 @@ generated tch-native archive is
 `5fc80b76584ef7c078a417fb53e09fa8477b211e26458ad1ee8f4a25cf626e0f` and is
 ready for the next Cloudflare publication step.
 
+#### W27 [ ] Rehearse the external model and native-runtime distribution
+
+Work: Publish the tch-native prepared bundle through the Terraform-managed
+R2 path, acquire it into an empty cache, and rehearse the installed executable
+with only its documented adjacent LibTorch/CUDA runtime files. Keep model
+artifacts independently updateable from the executable.
+
+Validation:
+
+```pwsh
+terraform fmt -check -recursive infra\cloudflare
+terraform validate infra\cloudflare
+cargo test --all-targets
+```
+
+Completion criteria: a clean-cache acquisition and installed-process receipt
+prove that the executable does not depend on the upstream checkout, hidden
+Python, or per-invocation environment setup.
+
+#### W28 [x] Define the typed doctor report and shared output integration
+
+Work: Add a `doctor` command returning a typed `CliOutput` value through
+`CliOutput::facet_with_csv(DoctorReport, ...)`.
+Derive `Facet` report types with stable kebab-case names and explicit check
+status/severity, summary, evidence, and remediation fields. Reuse the
+teamy-rust-cli `GlobalArgs.output_format` and top-level single-emission path;
+do not add a doctor-local formatter. Decide and document report schema
+versioning and exit behavior while preserving the report when checks fail.
+
+Keep raw credentials, access tokens, and secret environment values out of the
+report model. Use `#[facet(sensitive)]` on internal/configuration values where
+it provides defense in depth, but rely on safe projection rather than
+serializer redaction.
+
+Validation:
+
+```pwsh
+cargo test --all-targets
+cargo run -- --output-format text doctor
+cargo run -- --output-format json doctor
+cargo run -- --output-format csv doctor
+```
+
+Completion notes: `src/cli/doctor/doctor_cli.rs` defines versioned
+`DoctorReport`, `DoctorCheck`, and `DoctorStatus`; `src/cli/output.rs` keeps
+the format decision at the top level and supports the flat CSV projection.
+`cargo test --all-targets` includes text/JSON/CSV secret-safety coverage, and
+manual text, JSON, and CSV invocations all rendered successfully.
+
+#### W29 [x] Implement local configuration and model-cache checks
+
+Work: Report the effective configuration sources and precedence without
+revealing secret values; inspect model registry identity, prepared directory,
+manifest, required artifact presence, byte sizes, hashes, formats, and
+frontend/voice sidecars. Reuse existing config and artifact validation paths
+so doctor and synthesis cannot disagree about whether a model is prepared.
+
+Validation: Exercise empty-cache, valid-cache, stale-manifest, missing-file,
+hash-mismatch, and environment-override fixtures through focused tests and a
+real `cargo run -- --output-format json doctor` invocation. The command must
+describe the next safe CLI action without performing it.
+
+Completion notes: configuration values are reported with safe precedence
+labels (`environment-override`, `remembered-config`, or default), while model
+inspection reuses the catalog and prepared-manifest validator. Shallow mode
+checks manifest/size state; deep mode verifies SHA-256 hashes. A current
+installed run reported the prepared six-artifact bundle valid without creating
+or changing files.
+
+#### W30 [x] Implement native-runtime, CUDA, audio, and model-server checks
+
+Work: Add bounded checks for LibTorch discovery/version/linkage, CUDA device
+availability and identity, native DLL/runtime compatibility, output-directory
+writability, audio playback capability, and configured public model-server
+reachability. Separate cheap default checks from `doctor --deep`, which may
+load the actual modules and perform a short synthesis smoke test. Add
+`--offline` or equivalent skip semantics for network-dependent checks.
+
+Checks must distinguish required failures from optional acceleration or
+playback warnings, include actionable remediation commands, and never mutate
+configuration, cache contents, or the network state.
+
+Validation: Run shallow and deep doctor checks against the current RTX 4090
+installation, an empty cache, a deliberately unavailable model URL, and a
+process without the expected native runtime. Verify bounded failure behavior,
+redacted output, and no created model/audio artifacts from diagnostics except
+explicitly scoped temporary smoke-test files.
+
+Completion notes: the command now reports tch/LibTorch linkage, CUDA/cuDNN
+availability and runtime versions, Windows wave-output device availability,
+output-path safety, and bounded HTTPS model-server probes. `--offline`
+produces explicit skips; unconfigured R2D2FISH-OneDrive endpoints are explicit
+skips; reachable/unreachable Teamy endpoints produce independent checks.
+`doctor --deep --offline` passed the actual synthesis smoke test with 26,880
+samples on the RTX 4090. An online run completed with bounded endpoint
+failures rather than hanging in the current environment.
+
+#### W31 [x] Document and acceptance-test the diagnostic surface
+
+Work: Document the command examples, output-format behavior, report schema,
+exit statuses, check depth, offline behavior, secret-redaction boundary, and
+the fact that doctor diagnoses rather than repairs. Add CLI/integration tests
+for the public contract and update the release/distribution rehearsal to use
+doctor as its first troubleshooting step.
+
+Validation:
+
+```pwsh
+cargo fmt --check
+cargo test --all-targets
+cargo clippy --all-targets --all-features -- -D warnings
+cargo run -- --help
+cargo run -- --output-format json doctor | ConvertFrom-Json
+```
+
+Completion notes: README documents shallow/deep/offline behavior, safe
+versioned JSON, global output formats, and non-mutating diagnosis. `--help`
+contains `doctor`; redirected JSON parsed with PowerShell; `cargo fmt`,
+`cargo test --all-targets`, and `cargo clippy --all-targets --all-features --
+-D warnings` pass with the pinned LibTorch build environment.
+
 ## Next safe implementation slice
 
-1. Apply Terraform to publish the tch-native archive at the new content-
-   addressed Teamy R2 URL, then run `model acquire-prepared Teamy` from a
-   clean cache.
-2. Rehearse the final release package from a clean `PATH`, verify the copied
-   LibTorch DLL set, and preserve the receipt alongside the selected source
-   revision.
-3. Remove the transitional `--backend`/stored backend compatibility spelling
-   if no downstream script needs it; the runtime already has one implementation.
-4. Repeat the short and long benchmark after acquisition from the public bundle
-   and record the clean-machine result.
+1. Resume W27: publish the tch-native archive, rehearse the external model and
+   adjacent-DLL package from a clean cache/PATH, and run doctor first.
 
 Do not begin by manually rewriting every neural layer. First freeze the
 reference tensors, model variants, frontend behavior, and artifact provenance.
@@ -1617,6 +1761,8 @@ reference tensors, model variants, frontend behavior, and artifact provenance.
 Planning is complete when G1-G19 have owners and decisions, W3 has produced
 reference receipts, and the conversion boundary plus backend contract are
 executable. The multi-backend and installed-configuration goal is complete
-only when A1-A24 have evidence
-or explicit documented non-claims; the first release may still exclude an
-optional backend if its support boundary and evidence are honest.
+only when A1-A30 have evidence or explicit documented non-claims; the doctor
+goal additionally requires A31-A33, which now have implementation and current
+machine evidence. The first release may still exclude an
+optional backend if its support boundary and evidence are honest, but it must
+provide the diagnostic surface for the supported external-runtime path.

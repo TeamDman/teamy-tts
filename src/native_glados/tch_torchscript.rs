@@ -1,7 +1,7 @@
-//! Direct Rust bindings to the upstream GLaDOS TorchScript graphs.
+//! Direct Rust bindings to the upstream `GLaDOS` `TorchScript` graphs.
 //!
 //! This is the migration path away from the handwritten C++ bridge.  It keeps
-//! the upstream graph and LibTorch's optimized operators intact while making
+//! the upstream graph and `LibTorch`'s optimized operators intact while making
 //! the process boundary entirely Rust-side through `tch`.
 
 use eyre::Context;
@@ -24,7 +24,12 @@ pub struct TchTorchScriptRuntime {
 }
 
 impl TchTorchScriptRuntime {
-    /// Load the upstream TorchScript pair and prepared voice artifacts.
+    /// Load the upstream `TorchScript` pair and prepared voice artifacts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the model files, voice embeddings, or configured
+    /// CUDA device cannot be loaded.
     pub fn from_model_dir(
         model_dir: &Path,
         voice_p1_path: &Path,
@@ -109,6 +114,11 @@ impl TchTorchScriptRuntime {
     }
 
     /// Generate audio through the loaded upstream graph.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the voice is unknown, the `TorchScript` graph fails,
+    /// or the generated waveform cannot be copied to the host.
     pub fn synthesize(
         &self,
         token_values: &[i32],
@@ -181,5 +191,7 @@ fn load_voice_embedding(path: &Path) -> eyre::Result<Tensor> {
             f32::from_le_bytes(bytes)
         })
         .collect::<Vec<_>>();
-    Ok(Tensor::from_slice(&values).reshape([1, values.len() as i64]))
+    let embedding_width =
+        i64::try_from(values.len()).wrap_err("voice embedding width exceeds i64")?;
+    Ok(Tensor::from_slice(&values).reshape([1, embedding_width]))
 }

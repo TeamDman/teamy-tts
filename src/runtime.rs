@@ -1,4 +1,4 @@
-//! End-to-end tch/LibTorch GLaDOS inference and WAV emission.
+//! End-to-end `tch`/`LibTorch` `GLaDOS` inference and WAV emission.
 
 use crate::frontend::GladosFrontend;
 use crate::frontend_model::GladosPhonemizer;
@@ -9,12 +9,12 @@ use eyre::bail;
 use std::path::Path;
 use std::time::Instant;
 
-/// Runtime artifact roles required for local GLaDOS synthesis.
+/// Runtime artifact roles required for local `GLaDOS` synthesis.
 pub const FRONTEND_ROLE: &str = "frontend-dictionary";
 pub const VOICE_P1_ROLE: &str = "voice-p1";
 pub const VOICE_P2_ROLE: &str = "voice-p2";
 
-/// A loaded single-backend GLaDOS inference pipeline.
+/// A loaded single-backend `GLaDOS` inference pipeline.
 #[derive(Debug)]
 pub struct GladosRuntime {
     engine: TchTorchScriptRuntime,
@@ -24,7 +24,12 @@ pub struct GladosRuntime {
 }
 
 impl GladosRuntime {
-    /// Load the prepared frontend artifacts and raw upstream TorchScript model.
+    /// Load the prepared frontend artifacts and raw upstream `TorchScript` model.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when prepared artifacts, the phonemizer, `TorchScript`
+    /// graphs, or the configured native runtime cannot be loaded.
     pub fn from_prepared(
         artifacts: &PreparedModelArtifacts,
         model_dir: &Path,
@@ -60,6 +65,11 @@ impl GladosRuntime {
     }
 
     /// Generate mono floating-point audio for one English utterance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the input parameters are invalid, phonemization
+    /// fails, or native inference fails.
     pub fn synthesize(&self, text: &str, voice: &str, alpha: f32) -> eyre::Result<Vec<f32>> {
         if !alpha.is_finite() || alpha <= 0.0 {
             bail!("alpha must be a finite positive number");
@@ -82,6 +92,11 @@ impl GladosRuntime {
     }
 
     /// Write mono floating-point samples as a 16-bit PCM WAV file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the samples cannot be represented by a WAV file
+    /// or the destination cannot be written.
     pub fn write_wav(&self, output: &Path, samples: &[f32]) -> eyre::Result<()> {
         write_pcm16_wav(output, self.sample_rate_hz, samples)
     }

@@ -1,6 +1,7 @@
 pub mod benchmark;
 pub mod cache;
 pub mod config;
+pub mod doctor;
 pub mod facet_shape;
 pub mod global_args;
 pub mod home;
@@ -12,6 +13,7 @@ pub mod say;
 use crate::cli::benchmark::BenchmarkArgs;
 use crate::cli::cache::CacheArgs;
 use crate::cli::config::ConfigArgs;
+use crate::cli::doctor::DoctorArgs;
 use crate::cli::global_args::GlobalArgs;
 use crate::cli::home::HomeArgs;
 use crate::cli::interactive::InteractiveArgs;
@@ -154,6 +156,8 @@ pub enum Command {
     Cache(CacheArgs),
     /// Durable configuration and environment overrides.
     Config(ConfigArgs),
+    /// Diagnose local model, native runtime, CUDA, audio, and model-server health.
+    Doctor(DoctorArgs),
     /// Home-related commands.
     Home(HomeArgs),
     /// Model acquisition and preparation commands.
@@ -173,6 +177,7 @@ impl Command {
             Command::Interactive(args) => args.invoke(cancellation_token).await,
             Command::Cache(args) => args.invoke().await,
             Command::Config(args) => args.invoke().await,
+            Command::Doctor(args) => args.invoke().await,
             Command::Home(args) => args.invoke().await,
             Command::Model(args) => args.invoke(cancellation_token).await,
         }
