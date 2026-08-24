@@ -1,46 +1,48 @@
 //! Local audio playback adapters.
 
 use eyre::bail;
-use std::path::Path;
-
-/// Play a WAV file synchronously through the operating system audio device.
+/// Play an in-memory WAV buffer synchronously through the operating system
+/// audio device.
 ///
 /// # Errors
 ///
 /// Returns an error when the platform cannot start playback or does not have
 /// a built-in playback adapter in this build.
 #[cfg(windows)]
-pub fn play_wav(path: &Path) -> eyre::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
+pub fn play_wav_bytes(wav: &[u8]) -> eyre::Result<()> {
     use windows::Win32::Media::Audio::PlaySoundW;
-    use windows::Win32::Media::Audio::SND_FILENAME;
+    use windows::Win32::Media::Audio::SND_MEMORY;
     use windows::Win32::Media::Audio::SND_SYNC;
     use windows::core::PCWSTR;
 
-    let wide_path = path
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    // SAFETY: `wide_path` is NUL-terminated and remains alive for the
-    // synchronous call, so the pointer is valid for the Windows API call.
-    let played = unsafe { PlaySoundW(PCWSTR(wide_path.as_ptr()), None, SND_FILENAME | SND_SYNC) };
+    if wav.is_empty() {
+        bail!("cannot play an empty WAV buffer");
+    }
+
+    // `PlaySoundW` keeps reading this buffer until synchronous playback
+    // completes. The slice remains alive for the entire call, and the cast is
+    // required because the Windows API reuses its string-pointer parameter as
+    // a byte pointer when `SND_MEMORY` is selected.
+    let sound = PCWSTR(wav.as_ptr().cast());
+    // SAFETY: `sound` points to a valid in-memory RIFF/WAVE buffer whose
+    // lifetime covers this synchronous call.
+    let played = unsafe { PlaySoundW(sound, None, SND_MEMORY | SND_SYNC) };
     if !played.as_bool() {
-        bail!("Windows could not play WAV output {}", path.display());
+        bail!("Windows could not play in-memory WAV audio");
     }
     Ok(())
 }
 
-/// Play a WAV file synchronously through the operating system audio device.
+/// Play an in-memory WAV buffer synchronously through the operating system
+/// audio device.
 ///
 /// # Errors
 ///
 /// Returns an actionable error on platforms without the current playback
 /// adapter.
 #[cfg(not(windows))]
-pub fn play_wav(path: &Path) -> eyre::Result<()> {
+pub fn play_wav_bytes(_wav: &[u8]) -> eyre::Result<()> {
     bail!(
-        "WAV playback is currently implemented only on Windows; generated output is at {}",
-        path.display()
+        "in-memory WAV playback is currently implemented only on Windows; use `write` to save the audio"
     );
 }

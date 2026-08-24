@@ -8,7 +8,8 @@ use arbitrary::Arbitrary;
 use eyre::Result;
 use facet::Facet;
 use figue as args;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::time::Duration;
 
 const REPORT_SCHEMA_VERSION: u32 = 1;
@@ -370,7 +371,7 @@ fn check_output_directory(checks: &mut Vec<DoctorCheck>) {
         Ok(metadata) if metadata.is_dir() && !metadata.permissions().readonly() => {
             checks.push(DoctorCheck::pass(
                 "audio.output-directory",
-                "The default output directory exists and is not marked read-only",
+                "The optional output directory exists and is not marked read-only",
                 format!(
                     "path={}, writability=not-marked-read-only; no write probe performed",
                     output_dir.display()
@@ -379,27 +380,26 @@ fn check_output_directory(checks: &mut Vec<DoctorCheck>) {
         }
         Ok(metadata) if metadata.is_dir() => checks.push(DoctorCheck::fail(
             "audio.output-directory",
-            "The default output directory is marked read-only",
+            "The optional output directory is marked read-only",
             format!("path={}", output_dir.display()),
             "Choose a writable location with --output-dir",
         )),
         Ok(_) => checks.push(DoctorCheck::fail(
             "audio.output-directory",
-            "The default output path exists but is not a directory",
+            "The optional output path exists but is not a directory",
             format!("path={}", output_dir.display()),
             "Remove or rename the conflicting outputs path",
         )),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            checks.push(DoctorCheck::warn(
+            checks.push(DoctorCheck::pass(
                 "audio.output-directory",
-                "The default output directory does not exist yet",
-                format!("path={}; write will create it", output_dir.display()),
-                "Use --output-dir to choose another location if needed",
+                "No default output directory is required; persistent WAV output is opt-in",
+                format!("path={}; not-created", output_dir.display()),
             ));
         }
         Err(error) => checks.push(DoctorCheck::fail(
             "audio.output-directory",
-            "The default output directory could not be inspected",
+            "The optional output directory could not be inspected",
             format!("path={}, error={error}", output_dir.display()),
             "Choose a writable location with --output-dir",
         )),
@@ -424,7 +424,9 @@ fn check_audio_support(checks: &mut Vec<DoctorCheck>) {
                 checks.push(DoctorCheck::pass(
                     "audio.playback",
                     "Windows WAV playback support and an output device are available",
-                    format!("adapter=Win32 PlaySoundW; wave-output-devices={device_count}"),
+                    format!(
+                        "adapter=Win32 PlaySoundW/SND_MEMORY; wave-output-devices={device_count}"
+                    ),
                 ));
             }
         }

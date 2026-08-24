@@ -2,14 +2,19 @@
 
 use crate::audio;
 use crate::cli::output::CliOutput;
-use crate::cli::say::{emit_output_path, load_runtime, resolve_output_path, synthesize_and_write};
+use crate::cli::say::emit_output_path;
+use crate::cli::say::load_runtime;
+use crate::cli::say::resolve_output_path;
+use crate::cli::say::synthesize_to_wav;
+use crate::cli::say::write_wav_output;
 use arbitrary::Arbitrary;
 use eyre::Result;
 use facet::Facet;
 use figue as args;
+use std::io::BufRead;
 use std::io::IsTerminal;
 use std::io::Write;
-use std::io::{self, BufRead};
+use std::io::{self};
 use std::thread::JoinHandle;
 use std::time::Instant;
 use teamy_cancellation::CancellationToken;
@@ -20,7 +25,8 @@ const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
 type StdinMessage = Result<String, String>;
 
-/// Read text lines from stdin, write each result, and play it synchronously.
+/// Read stdin lines, play each result synchronously, and only persist output
+/// when `--output-dir` is explicitly provided.
 #[derive(Facet, Arbitrary, Debug, PartialEq)]
 pub struct InteractiveArgs {
     /// Stable model identifier. Defaults to glados.
@@ -38,12 +44,24 @@ pub struct InteractiveArgs {
     #[arbitrary(default)]
     pub alpha: Option<f32>,
 
+    /// Playback/output amplitude multiplier in the inclusive range 0.0..=1.0.
+    /// Defaults to 1.0.
+    #[facet(args::named)]
+    #[arbitrary(default)]
+    pub volume: Option<f32>,
+
     /// Compatibility selector for the only inference backend: tch/LibTorch.
     #[facet(args::named)]
     #[arbitrary(default)]
     pub backend: Option<String>,
 
-    /// Directory for automatically numbered WAV outputs.
+    /// Interpret each input line as `GLaDOS` IPA-like phoneme symbols.
+    #[facet(args::named, default)]
+    #[arbitrary(default)]
+    pub phonemes: bool,
+
+    /// Directory for automatically numbered WAV outputs. Supplying this flag
+    /// opts into persistent output files.
     #[facet(args::named)]
     #[arbitrary(default)]
     pub output_dir: Option<String>,
@@ -58,6 +76,7 @@ impl InteractiveArgs {
         let model_id = self.model.as_deref().unwrap_or("glados");
         let voice = self.voice.unwrap_or_else(|| "p2".to_string());
         let alpha = self.alpha.unwrap_or(1.0);
+        let volume = self.volume.unwrap_or(1.0);
         let output_dir = self.output_dir.as_deref();
         let (_model, runtime) = load_runtime(model_id, self.backend.as_deref())?;
         cancellation_token.bail_if_cancelled()?;
@@ -101,12 +120,16 @@ impl InteractiveArgs {
             }
 
             let output = resolve_output_path(text, output_dir, None)?;
-            synthesize_and_write(&runtime, text, &voice, alpha, &output)?;
-            emit_output_path(&output)?;
-
-            tracing::info!(output = %output.display(), "playing interactive WAV output");
+            let wav = synthesize_to_wav(&runtime, text, self.phonemes, &voice, alpha, volume)?;
+            if let Some(output) = output.as_deref() {
+                write_wav_output(&runtime, output, &wav)?;
+                emit_output_path(output)?;
+                tracing::info!(output = %output.display(), "playing interactive WAV output");
+            } else {
+                tracing::info!("playing interactive in-memory WAV output");
+            }
             let playback_started = Instant::now();
-            audio::play_wav(&output)?;
+            audio::play_wav_bytes(&wav)?;
             tracing::info!(
                 elapsed_ms = playback_started.elapsed().as_millis(),
                 "interactive playback complete"

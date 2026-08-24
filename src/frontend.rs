@@ -104,6 +104,64 @@ impl GladosFrontend {
         })
     }
 
+    /// Normalize text and return the exact `GLaDOS` phoneme-symbol sequence that
+    /// the model frontend will consume.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error from the callback or when a callback result contains
+    /// an unsupported symbol.
+    pub fn phonemize_with<F>(&self, text: &str, mut phonemize_unknown: F) -> eyre::Result<String>
+    where
+        F: FnMut(&str) -> eyre::Result<String>,
+    {
+        let normalized = normalize_text(text);
+        let mut phonemes = String::new();
+        let mut word = String::new();
+
+        for character in normalized.chars() {
+            if character.is_ascii_alphanumeric() || character == '\'' {
+                word.push(character.to_ascii_lowercase());
+                continue;
+            }
+
+            self.flush_word_with(&mut word, &mut phonemes, &mut phonemize_unknown)?;
+            if character == ' ' {
+                phonemes.push(' ');
+            } else if GLADOS_SYMBOLS.contains(character) {
+                phonemes.push(character);
+            }
+        }
+        self.flush_word_with(&mut word, &mut phonemes, &mut phonemize_unknown)?;
+
+        if phonemes.is_empty() {
+            bail!("text did not contain any transcribable words or punctuation");
+        }
+        Ok(phonemes)
+    }
+
+    /// Validate and tokenize `GLaDOS`'s IPA-like phoneme symbols directly.
+    ///
+    /// Unlike [`Self::tokenize`], this does not normalize text, append
+    /// punctuation, or invoke the neural phonemizer. Whitespace is treated as
+    /// the symbol-space separator used by the upstream model.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the input is empty or contains a symbol outside the
+    /// upstream `GLaDOS` symbol table.
+    pub fn tokenize_phonemes(&self, phonemes: &str) -> eyre::Result<Vec<i32>> {
+        if phonemes.trim().is_empty() {
+            bail!("phoneme input did not contain any symbols");
+        }
+        let mut tokens = Vec::new();
+        for symbol in phonemes.chars() {
+            let symbol = if symbol.is_whitespace() { ' ' } else { symbol };
+            self.push_symbol(symbol, &mut tokens)?;
+        }
+        Ok(tokens)
+    }
+
     /// Normalize and tokenize text, invoking `phonemize_unknown` for words
     /// absent from the prepared dictionary.
     ///
@@ -115,27 +173,10 @@ impl GladosFrontend {
     where
         F: FnMut(&str) -> eyre::Result<String>,
     {
-        let normalized = normalize_text(text);
+        let phonemes = self.phonemize_with(text, &mut phonemize_unknown)?;
         let mut tokens = Vec::new();
-        let mut word = String::new();
-
-        for character in normalized.chars() {
-            if character.is_ascii_alphanumeric() || character == '\'' {
-                word.push(character.to_ascii_lowercase());
-                continue;
-            }
-
-            self.flush_word_with(&mut word, &mut tokens, &mut phonemize_unknown)?;
-            if character == ' ' {
-                self.push_symbol(' ', &mut tokens)?;
-            } else if GLADOS_SYMBOLS.contains(character) {
-                self.push_symbol(character, &mut tokens)?;
-            }
-        }
-        self.flush_word_with(&mut word, &mut tokens, &mut phonemize_unknown)?;
-
-        if tokens.is_empty() {
-            bail!("text did not contain any transcribable words or punctuation");
+        for symbol in phonemes.chars() {
+            self.push_symbol(symbol, &mut tokens)?;
         }
         Ok(tokens)
     }
@@ -149,7 +190,7 @@ impl GladosFrontend {
     fn flush_word_with<F>(
         &self,
         word: &mut String,
-        tokens: &mut Vec<i32>,
+        phonemes_output: &mut String,
         phonemize_unknown: &mut F,
     ) -> eyre::Result<()>
     where
@@ -163,8 +204,14 @@ impl GladosFrontend {
             None => phonemize_unknown(word)?,
         };
         for phoneme in phonemes.chars() {
-            self.push_symbol(phoneme, tokens)?;
+            if !self.symbol_to_id.contains_key(&phoneme) {
+                bail!(
+                    "phoneme symbol {:?} is not in the GLaDOS symbol table",
+                    phoneme
+                );
+            }
         }
+        phonemes_output.push_str(&phonemes);
         word.clear();
         Ok(())
     }
@@ -584,10 +631,40 @@ mod tests {
     }
 
     #[test]
+    fn phonemization_exposes_the_sequence_before_tokenization() {
+        let frontend = GladosFrontend::from_tsv_contents("hello\thɛloʊ\n").unwrap();
+        let phonemes = frontend
+            .phonemize_with("hello", |_| unreachable!("dictionary entry should be used"))
+            .unwrap();
+        assert_eq!(phonemes, "hɛloʊ.");
+        assert_eq!(
+            frontend.tokenize_phonemes(&phonemes).unwrap(),
+            frontend.tokenize("hello").unwrap()
+        );
+    }
+
+    #[test]
     fn unknown_words_fail_loudly() {
         let frontend = GladosFrontend::from_tsv_contents("hello\thɛloʊ\n").unwrap();
         let error = frontend.tokenize("unknown").unwrap_err();
         assert!(error.to_string().contains("not in the prepared dictionary"));
+    }
+
+    #[test]
+    fn direct_phonemes_use_the_upstream_symbol_table() {
+        let frontend = GladosFrontend::from_tsv_contents("").unwrap();
+        let tokens = frontend.tokenize_phonemes("eɪ").unwrap();
+        assert_eq!(
+            tokens,
+            vec![frontend.symbol_to_id[&'e'], frontend.symbol_to_id[&'ɪ']]
+        );
+    }
+
+    #[test]
+    fn direct_phonemes_reject_unsupported_symbols() {
+        let frontend = GladosFrontend::from_tsv_contents("").unwrap();
+        let error = frontend.tokenize_phonemes("🙂").unwrap_err();
+        assert!(error.to_string().contains("not in the GLaDOS symbol table"));
     }
 
     #[test]

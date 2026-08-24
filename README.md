@@ -31,14 +31,26 @@ teamy-tts model list
 teamy-tts config set --torch-model-dir 'C:\Models\teamy-tts\glados'
 teamy-tts config set --torch-device 0
 
-# Write and print a WAV path.
-teamy-tts write "Hello, friend"
+# Write and print a WAV path. A destination is required for `write`.
+teamy-tts write "Hello, friend" --output .\hello.wav
 
-# Write, print, and play a WAV.
+# Play without creating a persistent WAV file.
 teamy-tts say "Hello, friend"
 
+# Run the complete synthesis and playback path silently.
+teamy-tts say "Hello, friend" --volume 0
+
+# Play a direct GLaDOS IPA-like phoneme sequence.
+teamy-tts say --phonemes "eɪ"
+
+# Inspect the phonemes and model token IDs produced for ordinary text.
+teamy-tts phonemize "The letter A"
+teamy-tts --output-format json phonemize "The letter A"
+
 # Keep the model resident while reading lines from stdin and playing results.
+# Files are retained only when --output-dir is supplied.
 teamy-tts interactive
+teamy-tts interactive --volume 0
 
 # Produce JSON benchmark evidence without creating or playing output files.
 teamy-tts benchmark "Hello, friend" --warmups 2 --measurements 5
@@ -48,9 +60,27 @@ teamy-tts doctor --offline
 teamy-tts --output-format json doctor --deep
 ```
 
-`write` defaults to `outputs/0001 <text>.wav`. Use `--output-dir` for an
-automatic numbered-output directory or `--output` for an explicit filename.
-The written path is emitted on stdout; structured tracing remains on stderr.
+`say` and `interactive` play the generated PCM16 WAV directly from memory and
+do not create files by default. Use `--output` with `say`, or `--output-dir`
+with `interactive`, to retain audio. `write` always requires `--output` or
+`--output-dir`; it never invents an `outputs` directory. The written path is
+emitted on stdout; structured tracing remains on stderr.
+
+`say` and `interactive` accept `--volume <0.0..=1.0>`. The multiplier is
+applied to the generated PCM samples before WAV encoding and playback, so
+`--volume 0` still exercises synthesis, WAV construction, and synchronous
+playback while producing silence.
+
+The `--phonemes` flag bypasses English normalization and the neural
+phonemizer. Its input must use symbols from GLaDOS's IPA-like inventory, for
+example `eɪ` for the spoken letter A or `hɛloʊ` for “hello”. Unsupported
+symbols are rejected before inference.
+
+`phonemize` uses the same prepared dictionary and neural phonemizer as
+synthesis, but loads only the text frontend. It reports the resulting phoneme
+sequence and integer token IDs without generating audio. This is useful for
+debugging cases such as `A` being interpreted as `ə`; use `eɪ` with
+`--phonemes` when the intended pronunciation is the name of the letter.
 
 `doctor` reports configuration and precedence, model-cache and manifest
 health, the external TorchScript directory, LibTorch/CUDA capability, audio
@@ -120,6 +150,24 @@ teamy-tts config set --torch-model-dir 'C:\Models\teamy-tts\glados'
 ```
 
 Future updates preserve that remembered configuration.
+
+## Local distribution rehearsal
+
+The repository includes a non-publishing clean-machine rehearsal. It stages
+the executable and adjacent LibTorch/CUDA DLLs, prepares the local native
+bundle into an empty cache, clears inherited environment variables for child
+processes, and records typed doctor, benchmark, playback, output, and failure
+evidence in a versioned JSON receipt:
+
+```powershell
+.\tools\rehearse-distribution.ps1 `
+  -LibTorchRoot 'G:\Programming\Caches\teamy-tts-libtorch-2.11.0-cu128\libtorch'
+```
+
+The rehearsal uses only local archives and does not contact Cloudflare,
+Terraform, DNS, credentials, or a remote model server. It does not establish
+rights to redistribute the model or GLaDOS voice; public publication remains a
+separate authorized step.
 
 ## Benchmark status
 

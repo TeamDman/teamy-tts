@@ -15,10 +15,10 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Instant;
 
-const DEFAULT_OUTPUT_DIR: &str = "outputs";
 const MAX_DEFAULT_OUTPUT_STEM_CHARS: usize = 80;
 
-/// Synthesize one English utterance, write it, and play it.
+/// Synthesize one utterance and play it. Audio is only written when an output
+/// destination is explicitly provided.
 #[derive(Facet, Arbitrary, Debug, PartialEq)]
 pub struct SayArgs {
     /// Text to synthesize.
@@ -40,10 +40,21 @@ pub struct SayArgs {
     #[arbitrary(default)]
     pub alpha: Option<f32>,
 
+    /// Playback/output amplitude multiplier in the inclusive range 0.0..=1.0.
+    /// Defaults to `1.0`.
+    #[facet(args::named)]
+    #[arbitrary(default)]
+    pub volume: Option<f32>,
+
     /// Compatibility selector for the only inference backend: tch/LibTorch.
     #[facet(args::named)]
     #[arbitrary(default)]
     pub backend: Option<String>,
+
+    /// Interpret the positional input as `GLaDOS` IPA-like phoneme symbols.
+    #[facet(args::named, default)]
+    #[arbitrary(default)]
+    pub phonemes: bool,
 
     /// Output filename or path. With --output-dir, this is relative to that
     /// directory; without it, the value is used as the complete path.
@@ -52,13 +63,13 @@ pub struct SayArgs {
     pub output: Option<String>,
 
     /// Directory for automatic numbered outputs, or for --output filenames.
-    /// Defaults to `outputs` when --output is omitted.
+    /// Supplying this flag opts into persistent output files.
     #[facet(args::named)]
     #[arbitrary(default)]
     pub output_dir: Option<String>,
 }
 
-/// Synthesize one English utterance into a WAV file without playing it.
+/// Synthesize one utterance into a WAV file without playing it.
 #[derive(Facet, Arbitrary, Debug, PartialEq)]
 pub struct WriteArgs {
     /// Text to synthesize.
@@ -85,6 +96,11 @@ pub struct WriteArgs {
     #[arbitrary(default)]
     pub backend: Option<String>,
 
+    /// Interpret the positional input as `GLaDOS` IPA-like phoneme symbols.
+    #[facet(args::named, default)]
+    #[arbitrary(default)]
+    pub phonemes: bool,
+
     /// Output filename or path. With --output-dir, this is relative to that
     /// directory; without it, the value is used as the complete path.
     #[facet(args::named)]
@@ -92,7 +108,7 @@ pub struct WriteArgs {
     pub output: Option<String>,
 
     /// Directory for automatic numbered outputs, or for --output filenames.
-    /// Defaults to outputs when --output is omitted.
+    /// Supplying this flag opts into persistent output files.
     #[facet(args::named)]
     #[arbitrary(default)]
     pub output_dir: Option<String>,
@@ -110,6 +126,7 @@ impl SayArgs {
     pub async fn invoke(self) -> Result<CliOutput> {
         let model_id = self.model.as_deref().unwrap_or("glados");
         let voice = self.voice.unwrap_or_else(|| "p2".to_string());
+        let volume = validate_volume(self.volume.unwrap_or(1.0))?;
         let output = resolve_output_path(
             &self.text,
             self.output_dir.as_deref(),
@@ -117,11 +134,16 @@ impl SayArgs {
         )?;
         let alpha = self.alpha.unwrap_or(1.0);
         let (_model, runtime) = load_runtime(model_id, self.backend.as_deref())?;
-        synthesize_and_write(&runtime, &self.text, &voice, alpha, &output)?;
-        emit_output_path(&output)?;
-        tracing::info!(output = %output.display(), "playing WAV output");
+        let wav = synthesize_to_wav(&runtime, &self.text, self.phonemes, &voice, alpha, volume)?;
+        if let Some(output) = output.as_deref() {
+            write_wav_output(&runtime, output, &wav)?;
+            emit_output_path(output)?;
+            tracing::info!(output = %output.display(), "playing WAV output");
+        } else {
+            tracing::info!("playing in-memory WAV output");
+        }
         let playback_started = Instant::now();
-        audio::play_wav(&output)?;
+        audio::play_wav_bytes(&wav)?;
         tracing::info!(
             elapsed_ms = playback_started.elapsed().as_millis(),
             "WAV playback complete"
@@ -147,9 +169,13 @@ impl WriteArgs {
             self.output_dir.as_deref(),
             self.output.as_deref(),
         )?;
+        let Some(output) = output else {
+            bail!("write requires --output <path> or --output-dir <directory>");
+        };
         let alpha = self.alpha.unwrap_or(1.0);
         let (_model, runtime) = load_runtime(model_id, self.backend.as_deref())?;
-        synthesize_and_write(&runtime, &self.text, &voice, alpha, &output)?;
+        let wav = synthesize_to_wav(&runtime, &self.text, self.phonemes, &voice, alpha, 1.0)?;
+        write_wav_output(&runtime, &output, &wav)?;
         emit_output_path(&output)
     }
 }
@@ -186,26 +212,51 @@ pub(crate) fn load_runtime(
     Ok((model, runtime))
 }
 
-/// Synthesize and write one WAV while retaining the timing logs used by the
+/// Synthesize and encode one WAV while retaining the timing logs used by the
 /// say, write, and interactive commands.
-pub(crate) fn synthesize_and_write(
+pub(crate) fn synthesize_to_wav(
     runtime: &GladosRuntime,
     text: &str,
+    phonemes: bool,
     voice: &str,
     alpha: f32,
-    output: &Path,
-) -> Result<usize> {
+    volume: f32,
+) -> Result<Vec<u8>> {
+    let volume = validate_volume(volume)?;
     tracing::info!(voice = %voice, "synthesizing text");
     let synthesis_started = Instant::now();
-    let samples = runtime.synthesize(text, voice, alpha)?;
+    let samples = if phonemes {
+        runtime.synthesize_phonemes(text, voice, alpha)?
+    } else {
+        runtime.synthesize(text, voice, alpha)?
+    };
+    let samples = scale_samples(samples, volume);
     tracing::info!(
         elapsed_ms = synthesis_started.elapsed().as_millis(),
         sample_count = samples.len(),
+        volume,
         "synthesis complete"
     );
+    runtime.wav_bytes(&samples)
+}
+
+fn validate_volume(volume: f32) -> Result<f32> {
+    if !volume.is_finite() || !(0.0..=1.0).contains(&volume) {
+        bail!("--volume must be a finite number in the range 0.0..=1.0");
+    }
+    Ok(volume)
+}
+
+fn scale_samples(mut samples: Vec<f32>, volume: f32) -> Vec<f32> {
+    for sample in &mut samples {
+        *sample *= volume;
+    }
+    samples
+}
+
+pub(crate) fn write_wav_output(runtime: &GladosRuntime, output: &Path, wav: &[u8]) -> Result<()> {
     tracing::info!(output = %output.display(), "writing WAV output");
-    runtime.write_wav(output, &samples)?;
-    Ok(samples.len())
+    runtime.write_wav_bytes(output, wav)
 }
 
 pub(crate) fn emit_output_path(output: &Path) -> Result<CliOutput> {
@@ -220,7 +271,7 @@ pub(crate) fn resolve_output_path(
     text: &str,
     output_dir: Option<&str>,
     output: Option<&str>,
-) -> Result<PathBuf> {
+) -> Result<Option<PathBuf>> {
     let output = match (output_dir, output) {
         (Some(directory), Some(filename)) => {
             if directory.trim().is_empty() {
@@ -249,11 +300,7 @@ pub(crate) fn resolve_output_path(
             }
             PathBuf::from(filename)
         }
-        (None, None) => {
-            let directory = PathBuf::from(DEFAULT_OUTPUT_DIR);
-            let sequence = next_output_sequence(&directory)?;
-            directory.join(format!("{sequence:04} {}.wav", sanitized_output_stem(text)))
-        }
+        (None, None) => return Ok(None),
     };
 
     if let Some(parent) = output.parent()
@@ -262,7 +309,7 @@ pub(crate) fn resolve_output_path(
         fs::create_dir_all(parent)
             .wrap_err_with(|| format!("failed to create output directory {}", parent.display()))?;
     }
-    Ok(output)
+    Ok(Some(output))
 }
 
 fn next_output_sequence(directory: &Path) -> Result<u32> {
@@ -345,7 +392,7 @@ mod tests {
 
         let path = resolve_output_path("Hello, friend", Some(directory.to_str().unwrap()), None)
             .expect("default output should resolve");
-        assert_eq!(path, directory.join("0002 Hello, friend.wav"));
+        assert_eq!(path, Some(directory.join("0002 Hello, friend.wav")));
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -353,6 +400,28 @@ mod tests {
     fn explicit_output_is_joined_to_output_directory() {
         let path = resolve_output_path("ignored", Some("outputs"), Some("abc.wav"))
             .expect("explicit output should resolve");
-        assert_eq!(path, PathBuf::from("outputs").join("abc.wav"));
+        assert_eq!(path, Some(PathBuf::from("outputs").join("abc.wav")));
+    }
+
+    #[test]
+    fn no_output_destination_is_ephemeral() {
+        let path = resolve_output_path("Hello, friend", None, None)
+            .expect("missing output destination should be allowed");
+        assert_eq!(path, None);
+    }
+
+    #[test]
+    fn volume_zero_silences_samples_without_skipping_the_buffer() {
+        let samples = scale_samples(vec![-1.0, -0.25, 0.5, 1.0], 0.0);
+        assert_eq!(samples, vec![0.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn volume_must_be_finite_and_within_unit_range() {
+        let _ = validate_volume(0.0).unwrap();
+        let _ = validate_volume(1.0).unwrap();
+        let _ = validate_volume(-0.01).unwrap_err();
+        let _ = validate_volume(1.01).unwrap_err();
+        let _ = validate_volume(f32::NAN).unwrap_err();
     }
 }

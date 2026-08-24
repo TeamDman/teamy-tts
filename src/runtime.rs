@@ -18,25 +18,30 @@ pub const VOICE_P2_ROLE: &str = "voice-p2";
 #[derive(Debug)]
 pub struct GladosRuntime {
     engine: TchTorchScriptRuntime,
-    frontend: GladosFrontend,
-    phonemizer: GladosPhonemizer,
+    frontend: GladosTextFrontend,
     sample_rate_hz: u32,
 }
 
-impl GladosRuntime {
-    /// Load the prepared frontend artifacts and raw upstream `TorchScript` model.
+/// The text-side portion of the `GLaDOS` frontend, without the acoustic model
+/// or vocoder. This is enough for inspecting or displaying phonemes.
+#[derive(Debug)]
+pub struct GladosTextFrontend {
+    frontend: GladosFrontend,
+    phonemizer: GladosPhonemizer,
+}
+
+impl GladosTextFrontend {
+    /// Load the prepared dictionary and the frontend phonemizer checkpoint.
     ///
     /// # Errors
     ///
-    /// Returns an error when prepared artifacts, the phonemizer, `TorchScript`
-    /// graphs, or the configured native runtime cannot be loaded.
+    /// Returns an error when the prepared dictionary or phonemizer checkpoint
+    /// cannot be loaded.
     pub fn from_prepared(
         artifacts: &PreparedModelArtifacts,
         model_dir: &Path,
     ) -> eyre::Result<Self> {
         let frontend_path = artifacts.path_for_role(FRONTEND_ROLE)?;
-        let voice_p1_path = artifacts.path_for_role(VOICE_P1_ROLE)?;
-        let voice_p2_path = artifacts.path_for_role(VOICE_P2_ROLE)?;
         let bundled_phonemizer_path = artifacts.root.join("glados-phonemizer.pt");
         let phonemizer_path = if bundled_phonemizer_path.is_file() {
             bundled_phonemizer_path
@@ -54,12 +59,63 @@ impl GladosRuntime {
         let phonemizer = GladosPhonemizer::from_file(&phonemizer_path)?;
         tracing::info!("loading frontend dictionary");
         let frontend = GladosFrontend::from_tsv(frontend_path)?;
+        Ok(Self {
+            frontend,
+            phonemizer,
+        })
+    }
+
+    /// Return the normalized and phonemized `GLaDOS` symbol sequence.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when neural phonemization fails or emits an unsupported
+    /// symbol.
+    pub fn phonemize(&self, text: &str) -> eyre::Result<String> {
+        self.frontend
+            .phonemize_with(text, |word| self.phonemizer.phonemize_word(word))
+    }
+
+    /// Normalize, phonemize, and convert ordinary text to model token IDs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when neural phonemization fails or emits an unsupported
+    /// symbol.
+    pub fn tokenize_text(&self, text: &str) -> eyre::Result<Vec<i32>> {
+        self.frontend
+            .tokenize_with(text, |word| self.phonemizer.phonemize_word(word))
+    }
+
+    /// Convert a phoneme-symbol sequence to the model's integer token IDs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the sequence contains an unsupported symbol.
+    pub fn tokenize_phonemes(&self, phonemes: &str) -> eyre::Result<Vec<i32>> {
+        self.frontend.tokenize_phonemes(phonemes)
+    }
+}
+
+impl GladosRuntime {
+    /// Load the prepared frontend artifacts and raw upstream `TorchScript` model.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when prepared artifacts, the phonemizer, `TorchScript`
+    /// graphs, or the configured native runtime cannot be loaded.
+    pub fn from_prepared(
+        artifacts: &PreparedModelArtifacts,
+        model_dir: &Path,
+    ) -> eyre::Result<Self> {
+        let voice_p1_path = artifacts.path_for_role(VOICE_P1_ROLE)?;
+        let voice_p2_path = artifacts.path_for_role(VOICE_P2_ROLE)?;
+        let frontend = GladosTextFrontend::from_prepared(artifacts, model_dir)?;
         let engine =
             TchTorchScriptRuntime::from_model_dir(model_dir, voice_p1_path, voice_p2_path)?;
         Ok(Self {
             engine,
             frontend,
-            phonemizer,
             sample_rate_hz: artifacts.manifest.sample_rate_hz,
         })
     }
@@ -76,13 +132,43 @@ impl GladosRuntime {
         }
 
         tracing::info!("phonemizing input");
-        let token_values = self
-            .frontend
-            .tokenize_with(text, |word| self.phonemizer.phonemize_word(word))?;
+        let token_values = self.frontend.tokenize_text(text)?;
         tracing::info!(token_count = token_values.len(), "phonemization complete");
+        self.synthesize_tokens(&token_values, voice, alpha)
+    }
+
+    /// Generate mono floating-point audio from `GLaDOS` IPA-like phoneme
+    /// symbols, bypassing English normalization and the neural phonemizer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the input contains an unsupported symbol or
+    /// native inference fails.
+    pub fn synthesize_phonemes(
+        &self,
+        phonemes: &str,
+        voice: &str,
+        alpha: f32,
+    ) -> eyre::Result<Vec<f32>> {
+        if !alpha.is_finite() || alpha <= 0.0 {
+            bail!("alpha must be a finite positive number");
+        }
+
+        tracing::info!("validating phoneme input");
+        let token_values = self.frontend.tokenize_phonemes(phonemes)?;
+        tracing::info!(token_count = token_values.len(), "phoneme input validated");
+        self.synthesize_tokens(&token_values, voice, alpha)
+    }
+
+    fn synthesize_tokens(
+        &self,
+        token_values: &[i32],
+        voice: &str,
+        alpha: f32,
+    ) -> eyre::Result<Vec<f32>> {
         tracing::info!("synthesizing with tch/LibTorch");
         let started = Instant::now();
-        let samples = self.engine.synthesize(&token_values, voice, alpha)?;
+        let samples = self.engine.synthesize(token_values, voice, alpha)?;
         tracing::info!(
             elapsed_ms = started.elapsed().as_millis(),
             sample_count = samples.len(),
@@ -98,7 +184,29 @@ impl GladosRuntime {
     /// Returns an error when the samples cannot be represented by a WAV file
     /// or the destination cannot be written.
     pub fn write_wav(&self, output: &Path, samples: &[f32]) -> eyre::Result<()> {
-        write_pcm16_wav(output, self.sample_rate_hz, samples)
+        let wav = self.wav_bytes(samples)?;
+        self.write_wav_bytes(output, &wav)
+    }
+
+    /// Encode mono floating-point samples as a 16-bit PCM WAV buffer in
+    /// memory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the samples cannot be represented by a WAV file.
+    pub fn wav_bytes(&self, samples: &[f32]) -> eyre::Result<Vec<u8>> {
+        encode_pcm16_wav(self.sample_rate_hz, samples)
+    }
+
+    /// Write an already encoded WAV buffer to disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the destination cannot be written.
+    pub fn write_wav_bytes(&self, output: &Path, wav: &[u8]) -> eyre::Result<()> {
+        std::fs::write(output, wav)
+            .wrap_err_with(|| format!("failed to write WAV output {}", output.display()))?;
+        Ok(())
     }
 
     /// Return the model sample rate.
@@ -114,7 +222,7 @@ impl GladosRuntime {
     }
 }
 
-fn write_pcm16_wav(output: &Path, sample_rate_hz: u32, samples: &[f32]) -> eyre::Result<()> {
+fn encode_pcm16_wav(sample_rate_hz: u32, samples: &[f32]) -> eyre::Result<Vec<u8>> {
     let data_bytes = samples
         .len()
         .checked_mul(2)
@@ -157,7 +265,5 @@ fn write_pcm16_wav(output: &Path, sample_rate_hz: u32, samples: &[f32]) -> eyre:
         bytes.extend_from_slice(&integer.to_le_bytes());
     }
 
-    std::fs::write(output, bytes)
-        .wrap_err_with(|| format!("failed to write WAV output {}", output.display()))?;
-    Ok(())
+    Ok(bytes)
 }

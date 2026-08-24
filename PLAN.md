@@ -7,14 +7,21 @@ correctness-gated warm benchmark receipt. The packaged executable also passes
 with adjacent native DLLs. The next implementation goal is a typed `doctor`
 diagnostic surface that reuses the teamy-rust-cli output contract and helps a
 consumer or LLM identify missing model, native-runtime, CUDA, audio, or model
-server prerequisites without self-repairing them.
+server prerequisites without self-repairing them. The local clean-machine
+distribution rehearsal and silent playback control are now repeatable; external
+publication remains
+ explicitly gated on model/voice redistribution rights and operator approval.
 Plan owner: Teamy
 Plan path: G:\Programming\Repos\teamy-tts\PLAN.md
-Last updated: 2026-08-12
+Last updated: 2026-08-23
 Current focus: [x] preserve the historical backend comparison; [x] remove
 non-tch code and migrate the prepared bundle to TorchScript artifacts; [x] pin
 the final single-backend Torch/CUDA toolchain; [x] add and validate the typed
-`doctor` report; [~] complete the final external distribution rehearsal.
+`doctor` report; [x] make playback in-memory and output persistence opt-in;
+[x] add direct GLaDOS phoneme input; [x] complete the local clean-machine
+distribution rehearsal; [x] add bounded silent playback control to `say` and
+`interactive`; [!] complete external publication after rights and operator
+authorization are established.
 
 **Plan status:** Active
 **Primary implementation root:** `G:\Programming\Repos\teamy-tts`
@@ -123,7 +130,7 @@ on `backend-comparison` but is not a `main` product dependency.
 | T27 | Add the first backend-native fused Burn recurrent kernel without changing Burnpack artifacts or weakening portable fallback behavior. | Confirmed; plain CUDA uses a specialized `CubeCL` bidirectional LSTM kernel, while fused/all-backends builds retain the packed fallback | W22, A27 |
 | T28 | Freeze the final single-backend native Torch toolchain before cleanup: exact `tch`/`torch-sys`, LibTorch/PyTorch, CUDA toolkit, compiler, and runtime packaging versions; do not upgrade Burn because it is comparison-only. | Confirmed; `tch`/`torch-sys` 0.24.0 + LibTorch 2.11.0+cu128, MSVC, and the Windows CUDA-link workaround are validated on the RTX 4090 | W25, A28 |
 | T29 | Remove non-tch backend implementations from `main`, migrate the prepared bundle to TorchScript artifacts, and provide one benchmark command for the remaining runtime. | Confirmed in source; the historical implementations remain on `backend-comparison` | W26, A29 |
-| T30 | Rehost the tch-native bundle and rehearse the installed executable from a clean machine/PATH. | Pending deployment; archive and Terraform source path are prepared, but Cloudflare publication has not been applied in this slice | W27, A30 |
+| T30 | Rehost the tch-native bundle and rehearse the installed executable from a clean machine/PATH. | Local rehearsal complete; public rehosting and remote acquisition remain pending explicit rights and authorization | W27, W34, A30, A34 |
 | T31 | Make a diagnostic `teamy-tts doctor` command the next implementation goal; it should describe system health without attempting brittle self-repair. | Implemented; report generation and checks are non-mutating | G20-G23, W28-W31, A31-A33 |
 | T32 | Reuse the teamy-rust-cli `CliOutput` and top-level `--output-format` behavior so doctor is an ordinary typed command, not a special output path. | Implemented; text/JSON use the typed report and CSV uses a shared flat projection | G20, W28, A31 |
 | T33 | Use Facet-derived report types and `#[facet(sensitive)]` where appropriate, but never place raw tokens, credentials, or other secret values in doctor reports. | Implemented with safe projections and text/JSON/CSV secret tests | G21, W28-W29, A31-A33 |
@@ -500,8 +507,10 @@ teamy-tts model acquire-unprepared R2D2FISH-OneDrive
 teamy-tts model acquire-prepared Teamy
 teamy-tts model acquire-prepared R2D2FISH-OneDrive
 teamy-tts model prepare glados --source-dir <native-bundle-directory>
-teamy-tts write --model glados "hello!"
+teamy-tts write --model glados "hello!" --output greeting.wav
 teamy-tts say --model glados "hello!"
+teamy-tts say --model glados --phonemes "eɪ"
+teamy-tts phonemize --model glados "The letter A"
 teamy-tts say --model glados "hello!" --output-dir <directory>
 teamy-tts say --model glados "hello!" --output-dir <directory> --output greeting.wav
 teamy-tts interactive --model glados --output-dir <directory>
@@ -511,12 +520,17 @@ teamy-tts interactive --model glados --output-dir <directory>
 
 - `write` and `say` accept `--model <id>`, default `glados`;
 - `write` and `say` accept one positional text value;
+- `write`, `say`, and `interactive` accept `--phonemes` to treat input as
+  validated GLaDOS IPA-like symbols instead of ordinary English text;
+- `phonemize` accepts ordinary text and reports the exact produced phoneme
+  sequence and model token IDs without loading the acoustic model or vocoder;
 - `interactive` reads newline-delimited text from stdin and loads the model
   once for the session;
 - `write` and `say` accept `--output <path>`, an explicit output path, or a
   filename relative to `--output-dir`;
-- `write` and `say` accept `--output-dir <directory>`, default `outputs` when
-  `--output` is omitted; `interactive` accepts `--output-dir`;
+- `write` and `say` accept `--output-dir <directory>`; `interactive` accepts
+  `--output-dir`; output persistence is opt-in and no command creates a
+  default `outputs` directory;
 - --voice <p1|p2>, default recorded in the model manifest;
 - --alpha <positive number>, forwarded to the upstream duration predictor;
 - --device <auto|cpu|cuda|wgpu>, accepted only for supported backends;
@@ -550,15 +564,13 @@ artifact names, verifies all hashes while installing the prepared manifest,
 and reports readiness for say. It remains the local/advanced path. The acquired
 raw TorchScript archive remains the development converter's input.
 
-With no output flags, say creates `outputs/{sequence} {text}.wav`, starting at
-`0001` and sanitizing text for the host filesystem. `--output-dir` selects the
-directory for automatic numbering or relative `--output` filenames. Without
-`--output-dir`, `--output` is the complete path. `write` emits the written WAV
-path on stdout and does not play it. `say` emits the path after writing, then
-plays the WAV synchronously. `interactive` emits one path per non-empty input
-line and plays each result while retaining the loaded model. Structured
-tracing logs and timings go to stderr; stdout is deliberately path-only for
-these synthesis commands.
+`--output-dir` selects the directory for automatic numbering or relative
+`--output` filenames. Without `--output-dir`, `--output` is the complete path.
+`write` requires one of those destinations and emits the written WAV path on
+stdout without playing it. `say` and `interactive` synthesize an in-memory
+PCM16 WAV and play it synchronously; they emit a path only when persistence was
+requested. Structured tracing logs and timings go to stderr; stdout is
+deliberately path-only for these synthesis commands.
 
 The command should be safe to rerun and should never treat a partially
 downloaded directory as a prepared model.
@@ -1522,6 +1534,8 @@ removed from the roadmap.
 | A31 | `doctor` uses the shared `CliOutput` and global `--output-format` contract. | Text/JSON/CSV CLI tests, redirected JSON parse, and no doctor-local renderer. |
 | A32 | `doctor` diagnoses model, configuration, LibTorch, CUDA, audio, and model-server state with shallow/deep and offline behavior. | Focused status aggregation and source-probe tests, current-machine shallow/deep run, bounded network failures, explicit offline/unconfigured skips, and remediation evidence. |
 | A33 | Doctor output is safe and non-mutating. | Text/JSON/CSV secret-fixture scan, no configuration/cache mutation, and README-documented report status/exit behavior. |
+| A34 | The local installed executable and external artifacts are auditable without hidden development dependencies. | W34 receipt with archive/runtime hashes, cleared child environment, typed doctor output, cold/warm behavior, opt-in WAV write, in-memory playback, resident interactive behavior, and honest missing/corrupt model/runtime failures. |
+| A35 | Playback can be tested end to end without audible output. | `--volume` validation, zero-scaling unit coverage, and W34 staged `say`/`interactive` runs that complete synchronous in-memory playback at volume zero. |
 
 ## Risks and stop conditions
 
@@ -1627,12 +1641,15 @@ generated tch-native archive is
 `5fc80b76584ef7c078a417fb53e09fa8477b211e26458ad1ee8f4a25cf626e0f` and is
 ready for the next Cloudflare publication step.
 
-#### W27 [ ] Rehearse the external model and native-runtime distribution
+#### W27 [!] Publish and remotely rehearse the external model and native-runtime distribution
 
 Work: Publish the tch-native prepared bundle through the Terraform-managed
 R2 path, acquire it into an empty cache, and rehearse the installed executable
 with only its documented adjacent LibTorch/CUDA runtime files. Keep model
-artifacts independently updateable from the executable.
+artifacts independently updateable from the executable. This work is awaiting
+explicit operator authorization and a recorded model/voice redistribution
+rights decision; no Terraform, Cloudflare, DNS, credential, or remote
+publication action is part of the current slice.
 
 Validation:
 
@@ -1642,9 +1659,11 @@ terraform validate infra\cloudflare
 cargo test --all-targets
 ```
 
-Completion criteria: a clean-cache acquisition and installed-process receipt
-prove that the executable does not depend on the upstream checkout, hidden
-Python, or per-invocation environment setup.
+Completion criteria: a published-object verification, clean remote acquisition,
+and installed-process receipt prove that the executable does not depend on the
+upstream checkout, hidden Python, or per-invocation environment setup. The
+local half of this criterion is recorded under W34; the remote half remains
+open.
 
 #### W28 [x] Define the typed doctor report and shared output integration
 
@@ -1748,10 +1767,76 @@ contains `doctor`; redirected JSON parsed with PowerShell; `cargo fmt`,
 `cargo test --all-targets`, and `cargo clippy --all-targets --all-features --
 -D warnings` pass with the pinned LibTorch build environment.
 
+#### W32 [x] Make playback memory-backed and phoneme input explicit
+
+Work: Keep generated audio in memory for `say` and `interactive` playback;
+write WAV files only when an output destination is explicitly requested. Make
+`write` require `--output` or `--output-dir`. Add a `--phonemes` mode that
+validates GLaDOS's IPA-like symbol inventory and bypasses text normalization
+and neural phonemization, while retaining ordinary English as the default.
+
+Validation: `cargo fmt --check`, `cargo test --all-targets`, and
+`cargo clippy --all-targets --all-features -- -D warnings` pass. The frontend
+unit tests cover direct `eɪ` tokenization and unsupported-symbol rejection;
+the output-path tests prove that no destination resolves to a persistent file.
+Windows playback uses `PlaySoundW` with `SND_MEMORY | SND_SYNC`, so the WAV
+buffer remains alive for the complete synchronous playback call.
+
+#### W33 [x] Expose the text frontend through `phonemize`
+
+Work: Add a `phonemize` command that uses the same prepared dictionary and
+neural phonemizer as synthesis, reports the exact GLaDOS phoneme-symbol
+sequence and integer token IDs, and loads only the text-side artifacts. Keep
+the command on the shared typed text/JSON/CSV output path.
+
+Validation: `cargo run -- phonemize "The letter A"` reports
+`ðə lɛtɝ ə.` and the JSON form reports the same sequence with token IDs.
+Frontend tests prove that the reported sequence tokenizes identically to
+ordinary synthesis input.
+
+#### W34 [x] Complete the local clean-machine distribution rehearsal
+
+Work: Add `tools/rehearse-distribution.ps1` as a non-publishing rehearsal
+harness. Stage the installed executable with its adjacent LibTorch/CUDA DLLs,
+copy and hash the catalogued native archive, prepare it into an empty cache,
+persist and override configuration, and run only the staged executable with a
+cleared environment containing the package and Windows loader paths. Record a
+versioned JSON receipt plus per-command stdout/stderr logs.
+
+Validation: The 2026-08-23 receipt at
+`target/distribution-rehearsal/20260823-203754580/receipt.json` contains 24
+passing assertions and 13 command records. It verifies the native archive
+(`217016604` bytes,
+`5fc80b76584ef7c078a417fb53e09fa8477b211e26458ad1ee8f4a25cf626e0f`) and raw
+archive (`343345374` bytes,
+`afb60dd8944934ea5c67bd85de70f424c151b5f41b50dc039578716364fa68c4`), the
+2.11.0+cu128 runtime manifest with 35 adjacent DLLs and no Python runtime,
+typed deep doctor output, remembered and environment configuration provenance,
+correctness-gated cold/warm benchmarking, in-memory `say`, explicit WAV
+writing, two-line resident `interactive`, and expected missing-model,
+corrupt-manifest, and missing-`torch_cuda.dll` failures. The child process
+environment contained no development checkout, Python, Hugging Face
+credentials, or remote model source.
+
+#### W35 [x] Add bounded silent playback control
+
+Work: Add `--volume <0.0..=1.0>` to `say` and `interactive`. Validate that the
+value is finite and within the inclusive unit range, scale the retained PCM
+samples before WAV encoding, and keep the normal synchronous in-memory
+playback path intact. This permits end-to-end playback tests at volume zero
+without skipping synthesis, WAV construction, or the operating-system audio
+call.
+
+Validation: Unit tests cover zero scaling and invalid values. The W34 receipt
+executes both `say --volume 0` and `interactive --volume 0`; each completed
+with no persistent output, logged the applied zero multiplier, and returned a
+successful synchronous playback result.
+
 ## Next safe implementation slice
 
-1. Resume W27: publish the tch-native archive, rehearse the external model and
-   adjacent-DLL package from a clean cache/PATH, and run doctor first.
+1. Resolve model/voice redistribution rights and obtain explicit authorization
+   before attempting W27's remote publication or acquisition steps. Until then,
+   rerun W34 locally when the package or model manifest changes.
 
 Do not begin by manually rewriting every neural layer. First freeze the
 reference tensors, model variants, frontend behavior, and artifact provenance.
@@ -1762,7 +1847,7 @@ Planning is complete when G1-G19 have owners and decisions, W3 has produced
 reference receipts, and the conversion boundary plus backend contract are
 executable. The multi-backend and installed-configuration goal is complete
 only when A1-A30 have evidence or explicit documented non-claims; the doctor
-goal additionally requires A31-A33, which now have implementation and current
+goal additionally requires A31-A35, which now have implementation and current
 machine evidence. The first release may still exclude an
 optional backend if its support boundary and evidence are honest, but it must
 provide the diagnostic surface for the supported external-runtime path.

@@ -8,6 +8,7 @@ pub mod home;
 pub mod interactive;
 pub mod model;
 pub mod output;
+pub mod phonemize;
 pub mod say;
 
 use crate::cli::benchmark::BenchmarkArgs;
@@ -17,9 +18,14 @@ use crate::cli::doctor::DoctorArgs;
 use crate::cli::global_args::GlobalArgs;
 use crate::cli::home::HomeArgs;
 use crate::cli::interactive::InteractiveArgs;
-use crate::cli::model::{ModelAcquirePreparedArgs, ModelArgs, ModelCommand, ModelPrepareArgs};
+use crate::cli::model::ModelAcquirePreparedArgs;
+use crate::cli::model::ModelArgs;
+use crate::cli::model::ModelCommand;
+use crate::cli::model::ModelPrepareArgs;
 use crate::cli::output::CliOutput;
-use crate::cli::say::{SayArgs, WriteArgs};
+use crate::cli::phonemize::PhonemizeArgs;
+use crate::cli::say::SayArgs;
+use crate::cli::say::WriteArgs;
 use crate::model_registry;
 use arbitrary::Arbitrary;
 use eyre::Context;
@@ -144,13 +150,15 @@ mod tests {
 #[derive(Facet, Arbitrary, Debug, PartialEq)]
 #[repr(u8)]
 pub enum Command {
-    /// Synthesize text, write a WAV file, and play it.
+    /// Synthesize text and play it; persist a WAV only with an output option.
     Say(SayArgs),
     /// Synthesize text into a WAV file without playing it.
     Write(WriteArgs),
+    /// Show the phoneme sequence and token IDs produced by the text frontend.
+    Phonemize(PhonemizeArgs),
     /// Measure cold-load and warm synthesis latency.
     Benchmark(BenchmarkArgs),
-    /// Read stdin lines, write each WAV file, and play each one.
+    /// Read stdin lines and play each one; persist WAVs only with --output-dir.
     Interactive(InteractiveArgs),
     /// Cache-related commands.
     Cache(CacheArgs),
@@ -173,6 +181,7 @@ impl Command {
         match self {
             Command::Say(args) => args.invoke().await,
             Command::Write(args) => args.invoke().await,
+            Command::Phonemize(args) => args.invoke().await,
             Command::Benchmark(args) => args.invoke().await,
             Command::Interactive(args) => args.invoke(cancellation_token).await,
             Command::Cache(args) => args.invoke().await,

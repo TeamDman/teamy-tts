@@ -3,7 +3,8 @@
 use crate::cli::output::CliOutput;
 use crate::cli::say::load_runtime;
 use arbitrary::Arbitrary;
-use eyre::{Result, bail};
+use eyre::Result;
+use eyre::bail;
 use facet::Facet;
 use figue as args;
 use std::time::Instant;
