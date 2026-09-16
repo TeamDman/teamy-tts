@@ -50,7 +50,7 @@ pub struct InteractiveArgs {
     #[arbitrary(default)]
     pub volume: Option<f32>,
 
-    /// Compatibility selector for the only inference backend: tch/LibTorch.
+    /// Inference backend compiled into this executable: auto, libtorch or cuda-native.
     #[facet(args::named)]
     #[arbitrary(default)]
     pub backend: Option<String>,

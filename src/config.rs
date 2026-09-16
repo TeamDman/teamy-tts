@@ -19,6 +19,8 @@ pub const BACKEND_ENV_VAR: &str = "TEAMY_TTS_BACKEND";
 pub const MODEL_DIR_ENV_VAR: &str = "TEAMY_TTS_MODEL_DIR";
 /// Override the upstream `TorchScript` model directory.
 pub const TORCH_MODEL_DIR_ENV_VAR: &str = "TEAMY_TTS_TORCH_MODEL_DIR";
+/// Override the native weights and dictionary directory.
+pub const NATIVE_MODEL_DIR_ENV_VAR: &str = "TEAMY_TTS_NATIVE_MODEL_DIR";
 /// Override the CUDA device used by the `LibTorch` backend.
 pub const TORCH_DEVICE_ENV_VAR: &str = "TEAMY_TTS_TORCH_DEVICE";
 
@@ -31,6 +33,8 @@ pub struct StoredConfig {
     pub model_dir: Option<String>,
     /// Directory containing `glados-new.pt` and `vocoder-gpu.pt`.
     pub torch_model_dir: Option<String>,
+    /// Directory containing weights.safetensors and frontend.tsv.
+    pub native_model_dir: Option<String>,
     /// CUDA device index used by `LibTorch`.
     pub torch_device: Option<i32>,
 }
@@ -44,6 +48,8 @@ pub struct EffectiveConfig {
     pub model_dir: String,
     /// Effective `TorchScript` model directory, if configured.
     pub torch_model_dir: Option<String>,
+    /// Effective native tensor artifact directory, if configured.
+    pub native_model_dir: Option<String>,
     /// Effective CUDA device index, if configured; `LibTorch` defaults to zero.
     pub torch_device: Option<i32>,
 }
@@ -133,6 +139,17 @@ pub fn effective_torch_model_dir() -> Result<Option<PathBuf>> {
         .map(PathBuf::from))
 }
 
+/// Resolve the native tensor artifact directory, with environment precedence.
+///
+/// # Errors
+/// Returns an error for empty overrides or invalid stored configuration.
+pub fn effective_native_model_dir() -> Result<Option<PathBuf>> {
+    let stored = load()?;
+    Ok(environment_value(NATIVE_MODEL_DIR_ENV_VAR)?
+        .or(stored.native_model_dir)
+        .map(PathBuf::from))
+}
+
 /// Resolve the `LibTorch` CUDA device index.
 ///
 /// # Errors
@@ -165,6 +182,7 @@ pub fn effective() -> Result<EffectiveConfig> {
         backend,
         model_dir: model_dir.display().to_string(),
         torch_model_dir: effective_torch_model_dir()?.map(|path| path.display().to_string()),
+        native_model_dir: effective_native_model_dir()?.map(|path| path.display().to_string()),
         torch_device: effective_torch_device()?,
     })
 }

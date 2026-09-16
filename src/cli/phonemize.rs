@@ -1,11 +1,14 @@
 //! Inspect the phoneme sequence produced by the local `GLaDOS` frontend.
 
+#[cfg(feature = "tch-native")]
 use crate::cli::model_preparation_hint;
 use crate::cli::output::CliOutput;
+#[cfg(feature = "tch-native")]
 use crate::config;
 use crate::model_registry;
 use crate::runtime::GladosTextFrontend;
 use arbitrary::Arbitrary;
+#[cfg(feature = "tch-native")]
 use eyre::Context;
 use eyre::Result;
 use eyre::bail;
@@ -73,19 +76,27 @@ pub(crate) fn load_text_frontend(
     let Some(model) = model_registry::find_model(model_id) else {
         bail!("unknown model {model_id:?}; known models: glados");
     };
-    tracing::info!(model = %model.id, "loading prepared text frontend");
-    let prepared = model_registry::inspect_prepared_model_dir(model).wrap_err_with(|| {
-        format!(
-            "model {:?} is not prepared at the required location; {}",
-            model.id,
-            model_preparation_hint(model)
-        )
-    })?;
-    let Some(model_dir) = config::effective_torch_model_dir()? else {
-        bail!(
-            "tch/LibTorch model directory is not configured; set it once with `teamy-tts config set --torch-model-dir <path>`"
-        );
-    };
-    let frontend = GladosTextFrontend::from_prepared(&prepared, &model_dir)?;
-    Ok((model, frontend))
+    #[cfg(feature = "cuda-native")]
+    {
+        let root = crate::runtime::configured_model_dir()?;
+        Ok((model, GladosTextFrontend::from_native(&root)?))
+    }
+    #[cfg(feature = "tch-native")]
+    {
+        tracing::info!(model = %model.id, "loading prepared text frontend");
+        let prepared = model_registry::inspect_prepared_model_dir(model).wrap_err_with(|| {
+            format!(
+                "model {:?} is not prepared at the required location; {}",
+                model.id,
+                model_preparation_hint(model)
+            )
+        })?;
+        let Some(model_dir) = config::effective_torch_model_dir()? else {
+            bail!(
+                "tch/LibTorch model directory is not configured; set it once with `teamy-tts config set --torch-model-dir <path>`"
+            );
+        };
+        let frontend = GladosTextFrontend::from_prepared(&prepared, &model_dir)?;
+        Ok((model, frontend))
+    }
 }

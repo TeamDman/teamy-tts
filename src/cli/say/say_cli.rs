@@ -1,4 +1,5 @@
 use crate::audio;
+#[cfg(feature = "tch-native")]
 use crate::cli::model_preparation_hint;
 use crate::cli::output::CliOutput;
 use crate::model_registry;
@@ -46,7 +47,7 @@ pub struct SayArgs {
     #[arbitrary(default)]
     pub volume: Option<f32>,
 
-    /// Compatibility selector for the only inference backend: tch/LibTorch.
+    /// Inference backend compiled into this executable: auto, libtorch or cuda-native.
     #[facet(args::named)]
     #[arbitrary(default)]
     pub backend: Option<String>,
@@ -91,7 +92,7 @@ pub struct WriteArgs {
     #[arbitrary(default)]
     pub alpha: Option<f32>,
 
-    /// Compatibility selector for the only inference backend: tch/LibTorch.
+    /// Inference backend compiled into this executable: auto, libtorch or cuda-native.
     #[facet(args::named)]
     #[arbitrary(default)]
     pub backend: Option<String>,
@@ -189,27 +190,36 @@ pub(crate) fn load_runtime(
     let Some(model) = model_registry::find_model(model_id) else {
         bail!("unknown model {model_id:?}; known models: glados");
     };
-    let started = Instant::now();
-    tracing::info!(model = %model.id, "loading prepared model");
-    let prepared = model_registry::inspect_prepared_model_dir(model).wrap_err_with(|| {
-        format!(
-            "model {:?} is not prepared at the required location; {}",
-            model.id,
-            model_preparation_hint(model)
-        )
-    })?;
-    let Some(model_dir) = crate::config::effective_torch_model_dir()? else {
-        bail!(
-            "tch/LibTorch model directory is not configured; set it once with `teamy-tts config set --torch-model-dir <path>`"
+    #[cfg(feature = "cuda-native")]
+    {
+        let root = crate::runtime::configured_model_dir()?;
+        let runtime = GladosRuntime::from_native(&root)?;
+        Ok((model, runtime))
+    }
+    #[cfg(feature = "tch-native")]
+    {
+        let started = Instant::now();
+        tracing::info!(model = %model.id, "loading prepared model");
+        let prepared = model_registry::inspect_prepared_model_dir(model).wrap_err_with(|| {
+            format!(
+                "model {:?} is not prepared at the required location; {}",
+                model.id,
+                model_preparation_hint(model)
+            )
+        })?;
+        let Some(model_dir) = crate::config::effective_torch_model_dir()? else {
+            bail!(
+                "tch/LibTorch model directory is not configured; set it once with `teamy-tts config set --torch-model-dir <path>`"
+            );
+        };
+        let runtime = GladosRuntime::from_prepared(&prepared, &model_dir)?;
+        tracing::info!(
+            backend = %runtime.backend_kind(),
+            elapsed_ms = started.elapsed().as_millis(),
+            "prepared model loaded"
         );
-    };
-    let runtime = GladosRuntime::from_prepared(&prepared, &model_dir)?;
-    tracing::info!(
-        backend = %runtime.backend_kind(),
-        elapsed_ms = started.elapsed().as_millis(),
-        "prepared model loaded"
-    );
-    Ok((model, runtime))
+        Ok((model, runtime))
+    }
 }
 
 /// Synthesize and encode one WAV while retaining the timing logs used by the

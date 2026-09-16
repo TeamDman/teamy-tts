@@ -6,13 +6,24 @@ pub mod backend;
 pub mod cli;
 pub mod config;
 pub mod frontend;
+#[cfg(feature = "tch-native")]
 pub mod frontend_model;
 pub mod logging_init;
 pub mod model_registry;
 pub mod model_sources;
+#[cfg(feature = "tch-native")]
 pub mod native_glados;
 pub mod paths;
+#[cfg_attr(feature = "cuda-native", path = "runtime_native.rs")]
 pub mod runtime;
+mod runtime_wav;
+
+#[cfg(all(feature = "cuda-native", feature = "tch-native"))]
+compile_error!(
+    "Select one backend per build: use --no-default-features --features cuda-native for native CUDA."
+);
+#[cfg(not(any(feature = "cuda-native", feature = "tch-native")))]
+compile_error!("Select either the tch-native or cuda-native feature.");
 #[cfg(windows)]
 mod windows_startup;
 

@@ -18,14 +18,18 @@ use crate::cli::doctor::DoctorArgs;
 use crate::cli::global_args::GlobalArgs;
 use crate::cli::home::HomeArgs;
 use crate::cli::interactive::InteractiveArgs;
+#[cfg(any(feature = "tch-native", test))]
 use crate::cli::model::ModelAcquirePreparedArgs;
 use crate::cli::model::ModelArgs;
+#[cfg(any(feature = "tch-native", test))]
 use crate::cli::model::ModelCommand;
+#[cfg(any(feature = "tch-native", test))]
 use crate::cli::model::ModelPrepareArgs;
 use crate::cli::output::CliOutput;
 use crate::cli::phonemize::PhonemizeArgs;
 use crate::cli::say::SayArgs;
 use crate::cli::say::WriteArgs;
+#[cfg(any(feature = "tch-native", test))]
 use crate::model_registry;
 use arbitrary::Arbitrary;
 use eyre::Context;
@@ -84,6 +88,7 @@ impl Cli {
 /// Keeping this construction typed means a model-preparation hint follows the
 /// same Figue schema as the command parser. The executable-prefixed form is
 /// especially useful while running the development binary through `cargo run`.
+#[cfg(any(feature = "tch-native", test))]
 fn render_command(command: Command) -> String {
     let cli = Cli {
         global_args: GlobalArgs::default(),
@@ -101,6 +106,7 @@ fn render_command(command: Command) -> String {
 }
 
 /// Explain how to install a model that `say` needs.
+#[cfg(any(feature = "tch-native", test))]
 pub(crate) fn model_preparation_hint(model: model_registry::ModelDefinition) -> String {
     let prepare = render_command(Command::Model(ModelArgs {
         command: ModelCommand::Prepare(ModelPrepareArgs {

@@ -1,12 +1,29 @@
 # teamy-tts
 
-`teamy-tts` is a local Rust CLI for running the GLaDOS text-to-speech models
-through one native inference path: Rust bindings from `tch-rs` over LibTorch.
-It does not require Python at runtime.
+`teamy-tts` is a local Rust CLI for running the GLaDOS text-to-speech models.
+Choose the source-defined CUDA backend or the existing default `tch-rs` and
+LibTorch backend. Neither needs Python at runtime.
 
-## Runtime model
+## Source-defined CUDA backend
 
-The product runtime is intentionally narrow:
+The `cuda-native` build expresses DeepPhonemizer, ForwardTacotron and HiFiGAN
+in Rust and ahead-of-time CUDA kernels. It loads weights from a safetensors
+artifact, with no TorchScript or LibTorch dependency. cuBLAS and cuDNN 9
+provide matrix multiplication and recurrent primitives.
+
+```powershell
+cargo build --release --no-default-features --features cuda-native --target-dir target/native-cli
+target/native-cli/release/teamy-tts.exe config set --backend cuda-native --native-model-dir <exported-model-directory>
+target/native-cli/release/teamy-tts.exe interactive
+```
+
+See [native build, artifact export and validation instructions](native/README.md).
+The native backend currently uses CUDA device 0. The default build retains
+the existing CPU option and model packaging flow.
+
+## Default LibTorch runtime
+
+The default build uses:
 
 ```text
 teamy-tts (Rust)
@@ -18,7 +35,7 @@ teamy-tts (Rust)
 Burn, CubeCL, Ash/Vulkan, WGPU, and the handwritten C++ bridge remain in the
 `backend-comparison` history branch. They are not part of the `main` build.
 The supported build target is the MSVC Rust toolchain on Windows. The final
-release package must ship the matching LibTorch DLLs beside the executable;
+LibTorch release package must ship matching LibTorch DLLs beside the executable;
 Python and a Python Torch installation are not required.
 
 ## Common commands

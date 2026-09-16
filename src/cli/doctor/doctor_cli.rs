@@ -117,18 +117,23 @@ impl DoctorArgs {
         let model = model_registry::find_model(model_id);
         check_model_catalog(model_id, model, &mut checks);
 
+        #[cfg(feature = "tch-native")]
         let prepared = if let Some(model) = model {
             check_prepared_model(model, self.deep, &mut checks)
         } else {
             None
-        };
+        }
+        .is_some();
+        #[cfg(feature = "cuda-native")]
+        let prepared = check_native_model(&mut checks);
+        #[cfg(feature = "tch-native")]
         check_torch_model_dir(effective_config.as_ref(), &mut checks);
         check_output_directory(&mut checks);
         check_audio_support(&mut checks);
         check_native_runtime(effective_config.as_ref(), &mut checks);
 
         if self.deep {
-            check_deep_runtime(model_id, model, prepared.is_some(), &mut checks);
+            check_deep_runtime(model_id, model, prepared, &mut checks);
         } else {
             checks.push(DoctorCheck::skip(
                 "runtime.deep-synthesis",
@@ -257,6 +262,7 @@ fn check_model_catalog(
     }
 }
 
+#[cfg(feature = "tch-native")]
 fn check_prepared_model(
     model: model_registry::ModelDefinition,
     deep: bool,
@@ -310,6 +316,41 @@ fn check_prepared_model(
     }
 }
 
+#[cfg(feature = "cuda-native")]
+fn check_native_model(checks: &mut Vec<DoctorCheck>) -> bool {
+    let result = crate::runtime::configured_model_dir().and_then(|root| {
+        for name in ["weights.safetensors", "frontend.tsv"] {
+            if !root.join(name).is_file() {
+                eyre::bail!("missing native artifact {}", root.join(name).display());
+            }
+        }
+        Ok(root)
+    });
+    match result {
+        Ok(root) => {
+            checks.push(DoctorCheck::pass(
+                "model.native-artifacts",
+                "The native tensor artifact and frontend dictionary exist",
+                format!(
+                    "path={}; use --deep to validate model loading",
+                    root.display()
+                ),
+            ));
+            true
+        }
+        Err(error) => {
+            checks.push(DoctorCheck::fail(
+                "model.native-artifacts",
+                "The native model directory is unavailable",
+                error.to_string(),
+                "Export with native/tools/export_model.py and set TEAMY_TTS_NATIVE_MODEL_DIR",
+            ));
+            false
+        }
+    }
+}
+
+#[cfg(feature = "tch-native")]
 fn check_torch_model_dir(
     effective_config: Option<&config::EffectiveConfig>,
     checks: &mut Vec<DoctorCheck>,
@@ -485,19 +526,22 @@ fn check_native_runtime(
             ));
         }
     }
-    #[cfg(not(feature = "tch-native"))]
+    #[cfg(feature = "cuda-native")]
     {
         let _ = effective_config;
-        checks.push(DoctorCheck::skip(
-            "runtime.libtorch",
-            "This build was compiled without the tch-native feature",
-            "Rebuild with the default tch-native feature",
-        ));
-        checks.push(DoctorCheck::skip(
-            "runtime.cuda",
-            "CUDA diagnostics require the tch-native feature",
-            "Rebuild with the default tch-native feature",
-        ));
+        match teamy_glados_native::check_device() {
+            Ok(()) => checks.push(DoctorCheck::pass(
+                "runtime.cuda",
+                "Native CUDA, cuBLAS and cuDNN initialized",
+                "backend=cuda-native; no LibTorch",
+            )),
+            Err(error) => checks.push(DoctorCheck::fail(
+                "runtime.cuda",
+                "Native CUDA initialization failed",
+                format!("{error:#}"),
+                "Check CUDA runtime DLLs and GLADOS_CUDNN_LIBRARY",
+            )),
+        }
     }
 }
 

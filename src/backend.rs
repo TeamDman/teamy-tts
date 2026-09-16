@@ -1,17 +1,18 @@
-//! The single inference backend used by teamy-tts main.
+//! Select the inference backend compiled into this executable.
 
 use eyre::Result;
 use std::fmt;
 
-/// The only supported runtime is direct Rust access to `LibTorch` through tch.
+/// Stable backend names shared by the default and CUDA-native builds.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BackendSelection {
-    /// Retained as a configuration spelling during migration; it resolves to
-    /// the sole tch/LibTorch runtime.
+    /// Resolve to the backend enabled at build time.
     #[default]
     Auto,
     /// Explicitly select tch/LibTorch.
     LibTorch,
+    /// Source-defined CUDA model without LibTorch.
+    NativeCuda,
 }
 
 impl BackendSelection {
@@ -23,9 +24,17 @@ impl BackendSelection {
     /// accepted compatibility spellings.
     pub fn parse(value: Option<&str>) -> Result<Self> {
         match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
-            None | Some("auto" | "libtorch" | "torchscript" | "tch") => Ok(Self::LibTorch),
+            None | Some("auto") => Ok(if cfg!(feature = "cuda-native") {
+                Self::NativeCuda
+            } else {
+                Self::LibTorch
+            }),
+            Some("native" | "cuda-native") if cfg!(feature = "cuda-native") => Ok(Self::NativeCuda),
+            Some("libtorch" | "torchscript" | "tch") if cfg!(feature = "tch-native") => {
+                Ok(Self::LibTorch)
+            }
             Some(other) => {
-                eyre::bail!("unknown backend {other:?}; teamy-tts supports only tch/LibTorch")
+                eyre::bail!("backend {other:?} is unavailable in this build")
             }
         }
     }
@@ -34,7 +43,9 @@ impl BackendSelection {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::Auto if cfg!(feature = "cuda-native") => "cuda-native",
             Self::Auto | Self::LibTorch => "libtorch",
+            Self::NativeCuda => "cuda-native",
         }
     }
 }

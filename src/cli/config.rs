@@ -41,7 +41,7 @@ pub struct ConfigShowArgs;
 #[derive(Facet, Arbitrary, Debug, PartialEq)]
 #[facet(rename_all = "kebab-case")]
 pub struct ConfigSetArgs {
-    /// Compatibility backend spelling: tch, torchscript, or libtorch.
+    /// Backend available in this build: auto, libtorch or cuda-native.
     #[facet(args::named)]
     #[arbitrary(default)]
     pub backend: Option<String>,
@@ -55,6 +55,10 @@ pub struct ConfigSetArgs {
     #[facet(args::named)]
     #[arbitrary(default)]
     pub torch_model_dir: Option<String>,
+    /// Directory containing native weights.safetensors and frontend.tsv.
+    #[facet(args::named)]
+    #[arbitrary(default)]
+    pub native_model_dir: Option<String>,
 
     /// CUDA device index used by `LibTorch`.
     #[facet(args::named)]
@@ -84,6 +88,10 @@ pub struct ConfigClearArgs {
     #[facet(args::named, default)]
     #[arbitrary(default)]
     pub torch_model_dir: bool,
+    /// Clear the remembered native tensor artifact directory.
+    #[facet(args::named, default)]
+    #[arbitrary(default)]
+    pub native_model_dir: bool,
 
     /// Clear the remembered `LibTorch` CUDA device.
     #[facet(args::named, default)]
@@ -138,10 +146,11 @@ impl ConfigSetArgs {
         if self.backend.is_none()
             && self.model_dir.is_none()
             && self.torch_model_dir.is_none()
+            && self.native_model_dir.is_none()
             && self.torch_device.is_none()
         {
             bail!(
-                "config set requires at least one setting; use --backend, --model-dir, --torch-model-dir, or --torch-device"
+                "config set requires at least one setting; use --backend, --model-dir, --torch-model-dir, --native-model-dir, or --torch-device"
             );
         }
 
@@ -155,6 +164,9 @@ impl ConfigSetArgs {
         }
         if let Some(torch_model_dir) = self.torch_model_dir {
             stored.torch_model_dir = Some(non_empty_path("--torch-model-dir", torch_model_dir)?);
+        }
+        if let Some(native_model_dir) = self.native_model_dir {
+            stored.native_model_dir = Some(non_empty_path("--native-model-dir", native_model_dir)?);
         }
         if let Some(torch_device) = self.torch_device {
             stored.torch_device = Some(torch_device);
@@ -174,9 +186,14 @@ impl ConfigClearArgs {
         reason = "command invoke methods share the async CLI dispatch shape"
     )]
     pub async fn invoke(self) -> Result<CliOutput> {
-        if !self.backend && !self.model_dir && !self.torch_model_dir && !self.torch_device {
+        if !self.backend
+            && !self.model_dir
+            && !self.torch_model_dir
+            && !self.native_model_dir
+            && !self.torch_device
+        {
             bail!(
-                "config clear requires at least one setting; use --backend, --model-dir, --torch-model-dir, or --torch-device"
+                "config clear requires at least one setting; use --backend, --model-dir, --torch-model-dir, --native-model-dir, or --torch-device"
             );
         }
 
@@ -189,6 +206,9 @@ impl ConfigClearArgs {
         }
         if self.torch_model_dir {
             stored.torch_model_dir = None;
+        }
+        if self.native_model_dir {
+            stored.native_model_dir = None;
         }
         if self.torch_device {
             stored.torch_device = None;

@@ -9,6 +9,10 @@ fn main() {
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=Cargo.lock");
     println!("cargo:rerun-if-changed=src");
+    println!("cargo:rerun-if-changed=native/src");
+    println!("cargo:rerun-if-changed=native/kernels");
+    println!("cargo:rerun-if-changed=native/build.rs");
+    println!("cargo:rerun-if-changed=native/Cargo.toml");
     add_source_fingerprint();
     add_exe_resources();
     add_windows_cuda_link_anchor();
@@ -20,7 +24,8 @@ fn main() {
 }
 
 fn add_windows_cuda_link_anchor() {
-    if !cfg!(windows) {
+    println!("cargo:rustc-check-cfg=cfg(teamy_tts_cuda_link)");
+    if !cfg!(windows) || std::env::var_os("CARGO_FEATURE_TCH_NATIVE").is_none() {
         return;
     }
     let Some(libtorch) = std::env::var_os("LIBTORCH") else {
@@ -53,6 +58,10 @@ fn add_source_fingerprint() {
         std::path::Path::new("build.rs"),
         std::path::Path::new("Cargo.toml"),
         std::path::Path::new("Cargo.lock"),
+        std::path::Path::new("native/src"),
+        std::path::Path::new("native/kernels"),
+        std::path::Path::new("native/build.rs"),
+        std::path::Path::new("native/Cargo.toml"),
     ] {
         collect_files(root, &mut files);
     }
