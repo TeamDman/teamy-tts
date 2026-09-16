@@ -49,7 +49,7 @@ windows = { version = "0.62.2", features = [
 ] }
 
 [features]
-default = ["tch-native"]
+default = ["cuda-native"]
 tch-native = ["dep:tch"]
 cuda-native = ["dep:teamy-glados-native"]
 extended_observability = []

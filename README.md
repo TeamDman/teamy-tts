@@ -1,8 +1,8 @@
 # teamy-tts
 
 `teamy-tts` is a local Rust CLI for running the GLaDOS text-to-speech models.
-Choose the source-defined CUDA backend or the existing default `tch-rs` and
-LibTorch backend. Neither needs Python at runtime.
+The default backend runs source-defined CUDA kernels. An optional `tch-rs`
+and LibTorch backend remains available. Neither needs Python at runtime.
 
 ## Source-defined CUDA backend
 
@@ -12,18 +12,19 @@ artifact, with no TorchScript or LibTorch dependency. cuBLAS and cuDNN 9
 provide matrix multiplication and recurrent primitives.
 
 ```powershell
-cargo build --release --no-default-features --features cuda-native --target-dir target/native-cli
-target/native-cli/release/teamy-tts.exe config set --backend cuda-native --native-model-dir <exported-model-directory>
-target/native-cli/release/teamy-tts.exe interactive
+cargo build --release
+target/release/teamy-tts.exe config set --backend cuda-native --native-model-dir <exported-model-directory>
+target/release/teamy-tts.exe interactive
 ```
 
 See [native build, artifact export and validation instructions](native/README.md).
-The native backend currently uses CUDA device 0. The default build retains
-the existing CPU option and model packaging flow.
+The native backend currently uses CUDA device 0. Build with
+`--no-default-features --features tch-native` to use the legacy backend,
+including its CPU option and model packaging flow.
 
-## Default LibTorch runtime
+## Optional LibTorch runtime
 
-The default build uses:
+The optional `tch-native` build uses:
 
 ```text
 teamy-tts (Rust)
@@ -40,13 +41,10 @@ Python and a Python Torch installation are not required.
 
 ## Common commands
 
-After installing the model bundle and configuring the upstream TorchScript
-directory (or an equivalent packaged model directory):
+After installing the exported native model and vendor runtime DLLs:
 
 ```powershell
-teamy-tts model list
-teamy-tts config set --torch-model-dir 'C:\Models\teamy-tts\glados'
-teamy-tts config set --torch-device 0
+teamy-tts config set --backend cuda-native --native-model-dir 'C:\Models\teamy-tts\glados-native'
 
 # Write and print a WAV path. A destination is required for `write`.
 teamy-tts write "Hello, friend" --output .\hello.wav
@@ -99,12 +97,13 @@ sequence and integer token IDs without generating audio. This is useful for
 debugging cases such as `A` being interpreted as `ə`; use `eɪ` with
 `--phonemes` when the intended pronunciation is the name of the letter.
 
-`doctor` reports configuration and precedence, model-cache and manifest
-health, the external TorchScript directory, LibTorch/CUDA capability, audio
+`doctor` reports configuration and precedence, backend-specific model artifact
+health, CUDA or LibTorch capability, audio
 support, and public model-server reachability. It performs no repair and does
 not modify configuration, model files, or output files. The default shallow
-check avoids loading the large models; `--deep` verifies artifact hashes,
-loads the actual runtime, and runs an in-memory synthesis smoke test.
+check avoids loading the large models; `--deep` validates model loading
+and runs an in-memory synthesis smoke test. The LibTorch path also verifies
+the prepared manifest's artifact hashes.
 
 Use `--offline` to skip network probes. The report has a versioned typed JSON
 shape with stable check IDs, `pass`/`warn`/`fail`/`skip` statuses, evidence,
@@ -117,7 +116,7 @@ individual health failures are represented by the report's aggregate `status`
 and check statuses so redirected JSON remains clean and useful to scripts or
 an LLM.
 
-## Model acquisition and preparation
+## LibTorch model acquisition and preparation
 
 The model catalog separates distributor (`Teamy`) from model (`glados`):
 
@@ -149,26 +148,35 @@ conversion work; it is not loaded by the product at runtime.
 
 ## Building from source
 
-Install the MSVC Rust toolchain and provision the LibTorch package matching
-the pinned `tch` release. Set `LIBTORCH` only for the build, then run:
+Install the MSVC Rust toolchain, CUDA toolkit and cuDNN 9. Set `CUDA_PATH`
+to the toolkit. The native build defaults to the RTX 4090's `sm_89` target;
+set `GLADOS_CUDA_ARCH` before building for another GPU.
 
 ```powershell
-$env:LIBTORCH = 'C:\path\to\libtorch'
 cargo build --release
-cargo test --all-targets
+cargo test --release --all-targets
 ```
 
-`update.ps1` builds and installs the executable and copies the LibTorch DLLs
-beside it. It does not modify the application configuration. Set the
-TorchScript model directory once, when needed:
+`update.ps1` installs the default native release and copies CUDA/cuDNN DLLs
+beside it. For the first installation, supply an exported model directory
+and a cuDNN runtime directory:
 
 ```powershell
-teamy-tts config set --torch-model-dir 'C:\Models\teamy-tts\glados'
+.\update.ps1 -CudnnRoot 'C:\path\to\cudnn' -NativeModelDir 'C:\Models\teamy-tts\glados-native'
 ```
 
-Future updates preserve that remembered configuration.
+The updater copies weights into the Cargo installation's
+`share/teamy-tts/glados-native-v1` directory and remembers that location.
+It selects `cuda-native`, preserves other settings, and checks the installed
+runtime without development DLL paths. Future `.\update.ps1` runs reuse the
+installed runtime DLLs and weights. No persistent environment changes are needed.
 
-## Local distribution rehearsal
+To install the legacy backend, run
+`.\update.ps1 -Backend libtorch -LibTorchRoot 'C:\path\to\libtorch'`.
+That build uses `--no-default-features --features tch-native` and selects
+`libtorch` in configuration.
+
+## Legacy LibTorch distribution rehearsal
 
 The repository includes a non-publishing clean-machine rehearsal. It stages
 the executable and adjacent LibTorch/CUDA DLLs, prepares the local native
@@ -178,6 +186,7 @@ evidence in a versioned JSON receipt:
 
 ```powershell
 .\tools\rehearse-distribution.ps1 `
+  -ExecutablePath '.\target\libtorch\release\teamy-tts.exe' `
   -LibTorchRoot 'G:\Programming\Caches\teamy-tts-libtorch-2.11.0-cu128\libtorch'
 ```
 
@@ -186,7 +195,7 @@ Terraform, DNS, credentials, or a remote model server. It does not establish
 rights to redistribute the model or GLaDOS voice; public publication remains a
 separate authorized step.
 
-## Benchmark status
+## Historical LibTorch benchmark
 
 The benchmark command reports model-load time, warmup count, sorted measured
 latencies, median, p95, sample count, generated audio duration, and an explicit

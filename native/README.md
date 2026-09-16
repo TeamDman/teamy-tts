@@ -4,7 +4,7 @@ This crate runs the complete GLaDOS model from Rust and ahead-of-time CUDA code.
 
 The model includes the six-layer DeepPhonemizer transformer, MultiForwardTacotron acoustic model and HiFiGAN vocoder. Rust defines layer order, dimensions, duration expansion and speaker selection. CUDA kernels implement the tensor operations; cuBLAS supplies matrix multiplication and cuDNN 9 supplies bidirectional GRU and LSTM inference.
 
-The current native backend targets NVIDIA CUDA. The existing default `tch-native` build remains available, including its CPU option. Both voices, duration scaling, phoneme input, WAV output and the existing interactive playback loop use the native backend when built with `cuda-native`.
+The default backend targets NVIDIA CUDA. The optional `tch-native` build remains available, including its CPU option. Both voices, duration scaling, phoneme input, WAV output and the existing interactive playback loop use the native backend.
 
 ## Build
 
@@ -13,10 +13,14 @@ Install a CUDA toolkit and a compatible cuDNN 9 runtime. Set `CUDA_PATH` to the 
 From the repository root:
 
 ```powershell
-cargo build --release --no-default-features --features cuda-native --target-dir target/native-cli
+cargo build --release
 ```
 
-The native CUDA runtime currently selects device 0. Put the CUDA runtime and cuBLAS DLL directories on `PATH`. Put cuDNN's runtime directory on `PATH`, or set `GLADOS_CUDNN_LIBRARY` to its cuDNN 9 library. cuDNN's dependent libraries must also be available. These are vendor runtime libraries; the native executable does not need Torch DLLs.
+The native CUDA runtime currently selects device 0. For development binaries, put the CUDA runtime and cuBLAS DLL directories on `PATH`. Put cuDNN's runtime directory on `PATH`, or set `GLADOS_CUDNN_LIBRARY` to its cuDNN 9 library. cuDNN's dependent libraries must also be available. These are vendor runtime libraries; the native executable does not need Torch DLLs.
+
+For a durable terminal installation, run `./update.ps1 -CudnnRoot <cuDNN-directory> -NativeModelDir <exported-model-directory>`. The updater installs the release binary and adjacent vendor DLLs, copies weights into the Cargo installation's `share/teamy-tts/glados-native-v1` directory, selects the native backend in configuration, and runs a deep diagnostic with a minimal DLL search path. Later `./update.ps1` runs reuse those DLLs and weights; `CUDA_PATH` must still identify the compiler toolkit.
+
+Build the legacy backend with `cargo build --release --no-default-features --features tch-native`, or install it with `./update.ps1 -Backend libtorch -LibTorchRoot <directory>`. Select one backend per build.
 
 ## Prepare the numerical artifact
 
@@ -35,11 +39,11 @@ The runtime needs only `weights.safetensors` and `frontend.tsv`. Keep `manifest.
 Set `TEAMY_TTS_NATIVE_MODEL_DIR` to the exported artifact directory. If an existing configuration explicitly selects LibTorch, select `cuda-native` with `TEAMY_TTS_BACKEND` or the configuration command below. Then run:
 
 ```powershell
-target/native-cli/release/teamy-tts.exe phonemize "Hello, friend"
-target/native-cli/release/teamy-tts.exe write "Hello, friend" --output hello.wav
-target/native-cli/release/teamy-tts.exe interactive
-target/native-cli/release/teamy-tts.exe benchmark "Hello, friend" --warmups 3 --measurements 20
-target/native-cli/release/teamy-tts.exe doctor --offline --deep
+target/release/teamy-tts.exe phonemize "Hello, friend"
+target/release/teamy-tts.exe write "Hello, friend" --output hello.wav
+target/release/teamy-tts.exe interactive
+target/release/teamy-tts.exe benchmark "Hello, friend" --warmups 3 --measurements 20
+target/release/teamy-tts.exe doctor --offline --deep
 ```
 
 To remember the directory and backend, use `config set --backend cuda-native --native-model-dir <directory>`. Environment variables override remembered settings. The same configuration file is shared with the default build unless `TEAMY_TTS_HOME_DIR` selects a separate home.

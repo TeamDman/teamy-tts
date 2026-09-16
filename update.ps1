@@ -1,5 +1,12 @@
 [CmdletBinding()]
 param(
+    [ValidateSet('cuda-native', 'libtorch')]
+    [string]$Backend = 'cuda-native',
+
+    [string]$CudaRoot = $env:CUDA_PATH,
+    [string]$CudnnRoot = $env:CUDNN_ROOT,
+    [string]$NativeModelDir = $env:TEAMY_TTS_NATIVE_MODEL_DIR,
+
     # LIBTORCH is needed while compiling tch's native bindings. The runtime
     # DLLs are copied beside the installed executable below. Use the exact
     # LibTorch release paired with the tch version pinned in Cargo.toml.
@@ -12,6 +19,16 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if ($Backend -eq 'cuda-native') {
+    if ([string]::IsNullOrWhiteSpace($CudnnRoot) -and -not [string]::IsNullOrWhiteSpace($LibTorchRoot)) {
+        $CudnnRoot = Join-Path $LibTorchRoot 'lib'
+    }
+    & (Join-Path $PSScriptRoot 'tools/update-cuda-native.ps1') `
+        -CudaRoot $CudaRoot -CudnnRoot $CudnnRoot `
+        -NativeModelDir $NativeModelDir -CargoRoot $CargoRoot
+    return
+}
 
 $expectedLibTorchBuild = '2.11.0+cu128'
 
@@ -59,6 +76,9 @@ $cargoArguments = @(
     $resolvedCargoRoot
     '--locked'
     '--force'
+    '--no-default-features'
+    '--features'
+    'tch-native'
 )
 & cargo @cargoArguments
 if ($LASTEXITCODE -ne 0) {
@@ -85,4 +105,6 @@ foreach ($dll in $runtimeDlls) {
 
 Write-Output "Installed tch/LibTorch teamy-tts at $installedExecutable"
 Write-Output "Copied $($runtimeDlls.Count) LibTorch runtime DLLs beside the executable"
-Write-Output 'Existing teamy-tts configuration was left unchanged; use teamy-tts config set --torch-model-dir <path> for one-time model setup.'
+& $installedExecutable config set --backend libtorch
+if ($LASTEXITCODE -ne 0) { throw "Failed to select the installed LibTorch backend" }
+Write-Output 'Existing model settings were preserved; use teamy-tts config set --torch-model-dir <path> for one-time model setup.'

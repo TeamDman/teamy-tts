@@ -1,3 +1,9 @@
+[CmdletBinding()]
+param(
+	[ValidateSet('cuda-native', 'tch-native')]
+	[string]$Backend = 'cuda-native'
+)
+
 function Invoke-Step {
 	param(
 		[Parameter(Mandatory = $true)]
@@ -27,9 +33,9 @@ function Get-NonTracyTestFeatureArgs {
 		throw "Could not determine root package from cargo metadata"
 	}
 
-	$features = @($pkg.features.PSObject.Properties.Name | Where-Object { $_ -notin @("default", "tracy") })
+	$features = @($Backend) + @($pkg.features.PSObject.Properties.Name | Where-Object { $_ -notin @("default", "tracy", "cuda-native", "tch-native") })
 	if ($features.Count -gt 0) {
-		return @("--features", ($features -join ","))
+		return @("--no-default-features", "--features", ($features -join ","))
 	}
 
 	return @()
@@ -40,15 +46,14 @@ Invoke-Step -Label "format check" -Action {
 }
 
 Invoke-Step -Label "clippy lint check" -Action {
-	# cargo clippy --all-targets --all-features -- -D warnings
-	cargo clippy --all-features -- -D warnings
+	cargo clippy --release --no-default-features --features "$Backend,tracy" -- -D warnings
 }
 
 Invoke-Step -Label "build" -Action {
-	cargo build --all-features --quiet
+	cargo build --release --no-default-features --features "$Backend,tracy" --quiet
 }
 
 Invoke-Step -Label "tests" -Action {
 	$featuresArg = Get-NonTracyTestFeatureArgs
-	cargo test @featuresArg --quiet
+	cargo test --release @featuresArg --quiet
 }

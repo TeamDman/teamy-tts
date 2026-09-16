@@ -1,4 +1,15 @@
-# Final single-backend dependency pinning
+# Inference dependencies
+
+The default build is now `cuda-native`: Rust model source, ahead-of-time
+CUDA kernels, cuBLAS and cuDNN 9, with external safetensors weights. It does
+not load LibTorch. See [native runtime documentation](native/README.md).
+
+The `tch-native` backend is retained as an explicit alternative using
+`--no-default-features --features tch-native`. Its pinned LibTorch family
+remains 2.11.0+cu128. The historical migration notes below describe that
+alternative and do not define the current default.
+
+## Historical LibTorch migration notes
 
 Status: tch-only migration in progress; final stable tch-rs family selected;
 matching LibTorch package and GPU acceptance run pending.
