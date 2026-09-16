@@ -35,6 +35,7 @@ use arbitrary::Arbitrary;
 use eyre::Context;
 use facet::Facet;
 use figue::FigueBuiltins;
+#[cfg(any(feature = "tch-native", test))]
 use figue::ToArgs;
 use figue::{self as args};
 use teamy_cancellation::CancellationToken;
@@ -45,7 +46,7 @@ use teamy_cancellation::CancellationToken;
 /// - `TEAMY_TTS_HOME_DIR` overrides the resolved application home directory.
 /// - `TEAMY_TTS_CACHE_DIR` overrides the resolved cache directory.
 /// - `TEAMY_TTS_BACKEND`, `TEAMY_TTS_MODEL_DIR`, `TEAMY_TTS_TORCH_MODEL_DIR`,
-///   and `TEAMY_TTS_TORCH_DEVICE` override remembered configuration values.
+///   `TEAMY_TTS_NATIVE_MODEL_DIR` and `TEAMY_TTS_TORCH_DEVICE` override remembered configuration values.
 /// - `RUST_LOG` provides a tracing filter when `--log-filter` is omitted.
 #[derive(Facet, Arbitrary, Debug)]
 pub struct Cli {

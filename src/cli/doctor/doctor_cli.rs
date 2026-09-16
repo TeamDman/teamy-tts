@@ -8,6 +8,7 @@ use arbitrary::Arbitrary;
 use eyre::Result;
 use facet::Facet;
 use figue as args;
+#[cfg(feature = "tch-native")]
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
