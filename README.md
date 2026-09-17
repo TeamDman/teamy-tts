@@ -81,6 +81,11 @@ with `interactive`, to retain audio. `write` always requires `--output` or
 `--output-dir`; it never invents an `outputs` directory. The written path is
 emitted on stdout; structured tracing remains on stderr.
 
+In `interactive`, press Ctrl-D on an empty line to exit normally. If you have
+typed text, Ctrl-D submits it first; press Ctrl-D again at the empty prompt to
+exit. Windows console editing still supports Backspace, Unicode input, and
+Ctrl-Z followed by Enter. Redirected stdin exits when its input reaches EOF.
+
 `say` and `interactive` accept `--volume <0.0..=1.0>`. The multiplier is
 applied to the generated PCM samples before WAV encoding and playback, so
 `--volume 0` still exercises synthesis, WAV construction, and synchronous

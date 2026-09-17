@@ -1,5 +1,8 @@
 //! Line-oriented stdin synthesis with synchronous local playback.
 
+#[cfg(windows)]
+mod console_input;
+
 use crate::audio;
 use crate::cli::output::CliOutput;
 use crate::cli::say::emit_output_path;
@@ -85,7 +88,7 @@ impl InteractiveArgs {
 
         tracing::info!(
             voice = %voice,
-            "interactive mode ready; enter text, or send EOF to exit"
+            "interactive mode ready; enter text, or press Ctrl-D on an empty line to exit"
         );
         loop {
             cancellation_token.bail_if_cancelled()?;
@@ -151,13 +154,21 @@ fn spawn_stdin_reader() -> Result<(mpsc::UnboundedReceiver<StdinMessage>, JoinHa
             let mut line = String::new();
             loop {
                 line.clear();
-                let message = match input.read_line(&mut line) {
+                #[cfg(windows)]
+                let read_result = if stdin.is_terminal() {
+                    console_input::read_line(&mut line)
+                } else {
+                    input.read_line(&mut line)
+                };
+                #[cfg(not(windows))]
+                let read_result = input.read_line(&mut line);
+                let message = match read_result {
                     Ok(0) => break,
                     Ok(_) => Ok(line.clone()),
                     Err(error) => Err(error.to_string()),
                 };
-                let should_stop = message.is_err() || sender.send(message).is_err();
-                if should_stop {
+                let failed = message.is_err();
+                if sender.send(message).is_err() || failed {
                     break;
                 }
             }
