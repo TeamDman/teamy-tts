@@ -9,7 +9,9 @@ pub mod interactive;
 pub mod model;
 pub mod output;
 pub mod phonemize;
+pub mod sapi;
 pub mod say;
+pub mod serve;
 
 use crate::cli::benchmark::BenchmarkArgs;
 use crate::cli::cache::CacheArgs;
@@ -167,6 +169,10 @@ pub enum Command {
     Benchmark(BenchmarkArgs),
     /// Read stdin lines and play each one; persist WAVs only with --output-dir.
     Interactive(InteractiveArgs),
+    /// Run the local resident native synthesis worker for Windows SAPI clients.
+    Serve(serve::ServeArgs),
+    /// Install, diagnose and test the Windows SAPI voice.
+    Sapi(sapi::SapiArgs),
     /// Cache-related commands.
     Cache(CacheArgs),
     /// Durable configuration and environment overrides.
@@ -191,6 +197,8 @@ impl Command {
             Command::Phonemize(args) => args.invoke().await,
             Command::Benchmark(args) => args.invoke().await,
             Command::Interactive(args) => args.invoke(cancellation_token).await,
+            Command::Serve(args) => args.invoke(cancellation_token).await,
+            Command::Sapi(args) => args.invoke(),
             Command::Cache(args) => args.invoke().await,
             Command::Config(args) => args.invoke().await,
             Command::Doctor(args) => args.invoke().await,

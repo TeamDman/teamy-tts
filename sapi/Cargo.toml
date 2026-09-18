@@ -1,0 +1,29 @@
+[package]
+name = "teamy-tts-sapi"
+version = "0.1.0"
+edition = "2024"
+license = "MPL-2.0"
+description = "Small Windows SAPI adapter for the Teamy TTS worker"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+test-fixture = []
+
+[dependencies]
+teamy-tts-ipc = { path = "../ipc" }
+windows-core = "0.62.2"
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation", "Win32_Media_Audio", "Win32_Media_Speech",
+    "Win32_Security", "Win32_System_Com", "Win32_System_Registry",
+] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[[bin]]
+name = "sapi-probe"
+path = "src/bin/sapi_probe.rs"
+required-features = ["test-fixture"]

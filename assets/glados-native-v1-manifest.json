@@ -1,0 +1,19 @@
+{
+  "files": {
+    "frontend.tsv": {
+      "bytes": 2545288,
+      "sha256": "2e229f9322839623f02a7f1bf0ce2b4f45ff56e67ebb32d27c3a069dcf4bcc69"
+    },
+    "weights.safetensors": {
+      "bytes": 232620740,
+      "sha256": "f3ab504f0fb9f360c05d8ffd044cdea3f1ca00666fd51f8762031e3baf77b87b"
+    }
+  },
+  "precision": "float32",
+  "sample_rate": 22050,
+  "schema": "teamy-glados-native-v1",
+  "voices": [
+    "p1",
+    "p2"
+  ]
+}

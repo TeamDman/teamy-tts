@@ -72,20 +72,31 @@ const SOURCES: &[SourceDefinition] = &[
 ///
 /// Returns an error when a configured URL environment variable cannot be read.
 pub fn diagnostic_source_endpoints() -> Result<Vec<DiagnosticSourceEndpoint>> {
-    let mut endpoints = Vec::new();
-    for source in SOURCES {
-        endpoints.push(DiagnosticSourceEndpoint {
-            source: source.id,
-            artifact: "raw-model-archive",
-            url: configured_source_url(source.raw_url_env_var, source.raw_url)?,
-        });
-        endpoints.push(DiagnosticSourceEndpoint {
-            source: source.id,
-            artifact: "native-bundle",
-            url: configured_source_url(source.native_url_env_var, source.native_url)?,
-        });
+    #[cfg(feature = "cuda-native")]
+    {
+        return Ok(vec![DiagnosticSourceEndpoint {
+            source: "Teamy",
+            artifact: "cuda-native-bundle",
+            url: Some(crate::cuda_bundle::source_url()?),
+        }]);
     }
-    Ok(endpoints)
+    #[cfg(feature = "tch-native")]
+    {
+        let mut endpoints = Vec::new();
+        for source in SOURCES {
+            endpoints.push(DiagnosticSourceEndpoint {
+                source: source.id,
+                artifact: "raw-model-archive",
+                url: configured_source_url(source.raw_url_env_var, source.raw_url)?,
+            });
+            endpoints.push(DiagnosticSourceEndpoint {
+                source: source.id,
+                artifact: "native-bundle",
+                url: configured_source_url(source.native_url_env_var, source.native_url)?,
+            });
+        }
+        Ok(endpoints)
+    }
 }
 
 /// The durable receipt emitted after an archive has passed verification.

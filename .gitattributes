@@ -1,0 +1,2 @@
+# The embedded runtime manifest is hash-pinned; checkout must preserve its bytes.
+/assets/*.json text eol=lf

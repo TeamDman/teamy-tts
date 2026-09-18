@@ -5,6 +5,7 @@ pub mod audio;
 pub mod backend;
 pub mod cli;
 pub mod config;
+pub mod cuda_bundle;
 pub mod frontend;
 #[cfg(feature = "tch-native")]
 pub mod frontend_model;
@@ -17,6 +18,8 @@ pub mod paths;
 #[cfg_attr(feature = "cuda-native", path = "runtime_native.rs")]
 pub mod runtime;
 mod runtime_wav;
+#[cfg(all(windows, feature = "cuda-native"))]
+pub mod worker;
 
 #[cfg(all(feature = "cuda-native", feature = "tch-native"))]
 compile_error!(

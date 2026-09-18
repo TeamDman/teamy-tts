@@ -1,10 +1,12 @@
 use crate::cli::output::CliOutput;
+#[cfg(feature = "tch-native")]
 use crate::model_registry;
 use arbitrary::Arbitrary;
 use eyre::Result;
 use eyre::bail;
 use facet::Facet;
 use figue as args;
+#[cfg(feature = "tch-native")]
 use std::path::PathBuf;
 
 /// Install a converter-produced native model bundle.
@@ -30,6 +32,7 @@ pub struct ModelPrepareArgs {
 }
 
 #[derive(Facet, Debug)]
+#[cfg(feature = "tch-native")]
 struct ModelPrepareReport {
     model: String,
     source: String,
@@ -47,53 +50,66 @@ impl ModelPrepareArgs {
         reason = "Command invoke methods share the async CLI dispatch shape."
     )]
     pub async fn invoke(self) -> Result<CliOutput> {
-        let model_id = self.model.as_str();
-        let Some(model) = model_registry::find_model(model_id) else {
-            bail!("unknown model {model_id:?}; known models: glados");
-        };
-        if self.source_dir.is_some() && self.source_archive.is_some() {
-            bail!("choose only one of --source-dir or --source-archive");
+        #[cfg(feature = "cuda-native")]
+        {
+            if self.model != "glados" {
+                bail!("unknown model {:?}; known models: glados", self.model);
+            }
+            return Ok(CliOutput::facet(crate::cuda_bundle::prepare(
+                self.source_dir.as_deref().map(std::path::Path::new),
+                self.source_archive.as_deref().map(std::path::Path::new),
+            )?));
         }
-        let (source, artifacts) = match (self.source_dir, self.source_archive) {
-            (Some(_), Some(_)) => {
+        #[cfg(feature = "tch-native")]
+        {
+            let model_id = self.model.as_str();
+            let Some(model) = model_registry::find_model(model_id) else {
+                bail!("unknown model {model_id:?}; known models: glados");
+            };
+            if self.source_dir.is_some() && self.source_archive.is_some() {
                 bail!("choose only one of --source-dir or --source-archive");
             }
-            (Some(source_dir), None) => {
-                let source_dir = PathBuf::from(source_dir);
-                let artifacts =
-                    model_registry::prepare_native_bundle(model, &source_dir, self.force)?;
-                (source_dir, artifacts)
-            }
-            (None, Some(source_archive)) => {
-                let source_archive = PathBuf::from(source_archive);
-                let artifacts = model_registry::prepare_native_bundle_archive(
-                    model,
-                    &source_archive,
-                    self.force,
-                )?;
-                (source_archive, artifacts)
-            }
-            (None, None) => {
-                let source_archive = model_registry::native_bundle_archive_path(model);
-                let receipt = model_registry::native_bundle_acquisition_receipt_path(model);
-                if !source_archive.is_file() || !receipt.is_file() {
-                    bail!(
-                        "model prepare requires --source-dir or --source-archive; no verified native bundle is cached (run model acquire-prepared first)"
-                    );
+            let (source, artifacts) = match (self.source_dir, self.source_archive) {
+                (Some(_), Some(_)) => {
+                    bail!("choose only one of --source-dir or --source-archive");
                 }
-                let artifacts = model_registry::prepare_native_bundle_archive(
-                    model,
-                    &source_archive,
-                    self.force,
-                )?;
-                (source_archive, artifacts)
-            }
-        };
-        Ok(CliOutput::facet(ModelPrepareReport {
-            model: model.id.to_string(),
-            source: source.display().to_string(),
-            prepared_dir: artifacts.root.display().to_string(),
-            artifact_count: artifacts.manifest.artifacts.len(),
-        }))
+                (Some(source_dir), None) => {
+                    let source_dir = PathBuf::from(source_dir);
+                    let artifacts =
+                        model_registry::prepare_native_bundle(model, &source_dir, self.force)?;
+                    (source_dir, artifacts)
+                }
+                (None, Some(source_archive)) => {
+                    let source_archive = PathBuf::from(source_archive);
+                    let artifacts = model_registry::prepare_native_bundle_archive(
+                        model,
+                        &source_archive,
+                        self.force,
+                    )?;
+                    (source_archive, artifacts)
+                }
+                (None, None) => {
+                    let source_archive = model_registry::native_bundle_archive_path(model);
+                    let receipt = model_registry::native_bundle_acquisition_receipt_path(model);
+                    if !source_archive.is_file() || !receipt.is_file() {
+                        bail!(
+                            "model prepare requires --source-dir or --source-archive; no verified native bundle is cached (run model acquire-prepared first)"
+                        );
+                    }
+                    let artifacts = model_registry::prepare_native_bundle_archive(
+                        model,
+                        &source_archive,
+                        self.force,
+                    )?;
+                    (source_archive, artifacts)
+                }
+            };
+            Ok(CliOutput::facet(ModelPrepareReport {
+                model: model.id.to_string(),
+                source: source.display().to_string(),
+                prepared_dir: artifacts.root.display().to_string(),
+                artifact_count: artifacts.manifest.artifacts.len(),
+            }))
+        }
     }
 }

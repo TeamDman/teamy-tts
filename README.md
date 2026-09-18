@@ -22,6 +22,30 @@ The native backend currently uses CUDA device 0. Build with
 `--no-default-features --features tch-native` to use the legacy backend,
 including its CPU option and model packaging flow.
 
+## Windows SAPI and Minecraft narration
+
+The Windows x64 CUDA build includes a desktop SAPI voice. A small COM DLL
+returns PCM to SAPI; it starts `teamy-tts serve` on demand and reuses that
+worker while the model is warm. The worker exits after two idle minutes.
+Minecraft Java 1.19.2 uses this desktop SAPI interface.
+
+```powershell
+# After update.ps1, register from an administrator terminal:
+teamy-tts sapi install
+
+# These commands run in a normal terminal:
+teamy-tts sapi status
+teamy-tts sapi test --text "Hello, friend" --output .\sapi-test.wav
+teamy-tts sapi stop
+```
+
+Installation preserves the Windows default voice. To enable Minecraft's
+narrator, select **Teamy GLaDOS (native)** in the legacy Windows Speech
+properties, then restart Minecraft and enable its narrator. This affects
+other applications that use the same default. See [SAPI setup, supported
+behavior and the game checklist](sapi/README.md). The actual game still needs
+an in-game check; the integration harness exercises its SAPI calls directly.
+
 ## Optional LibTorch runtime
 
 The optional `tch-native` build uses:
@@ -121,9 +145,31 @@ individual health failures are represented by the report's aggregate `status`
 and check statuses so redirected JSON remains clean and useful to scripts or
 an LLM.
 
+## Native weights acquisition
+
+The default CUDA build downloads a weights-only artifact:
+
+```powershell
+teamy-tts model acquire-prepared Teamy
+teamy-tts doctor --offline --deep
+```
+
+The ZIP is 217,051,750 bytes (207 MiB). It contains only `weights.safetensors`
+(232,620,740 bytes), `frontend.tsv` and a small manifest. It contains no
+TorchScript, Python or recorded computation graph. Both speaker embeddings
+are included in the safetensors file. The executable contains the model's
+operations; the large weights stay outside Git and the executable.
+
+Acquisition verifies the pinned archive and each extracted file before atomic
+installation. A cached verified model works offline. Existing explicit model
+configuration is preserved. `model prepare glados --source-dir <directory>`
+can prepare the same runtime files locally (use `--source-archive` for a ZIP).
+`TEAMY_TTS_TEAMY_CUDA_SOURCE_URL`
+overrides the download endpoint while retaining checksum verification.
+
 ## LibTorch model acquisition and preparation
 
-The model catalog separates distributor (`Teamy`) from model (`glados`):
+In a `tch-native` build, the model catalog separates distributor (`Teamy`) from model (`glados`):
 
 ```powershell
 teamy-tts model acquire-prepared Teamy
@@ -163,11 +209,11 @@ cargo test --release --all-targets
 ```
 
 `update.ps1` installs the default native release and copies CUDA/cuDNN DLLs
-beside it. For the first installation, supply an exported model directory
-and a cuDNN runtime directory:
+beside it and builds the SAPI adapter. For the first installation, supply a
+cuDNN runtime directory; the weights are acquired automatically:
 
 ```powershell
-.\update.ps1 -CudnnRoot 'C:\path\to\cudnn' -NativeModelDir 'C:\Models\teamy-tts\glados-native'
+.\update.ps1 -CudnnRoot 'C:\path\to\cudnn'
 ```
 
 The updater copies weights into the Cargo installation's
@@ -175,6 +221,9 @@ The updater copies weights into the Cargo installation's
 It selects `cuda-native`, preserves other settings, and checks the installed
 runtime without development DLL paths. Future `.\update.ps1` runs reuse the
 installed runtime DLLs and weights. No persistent environment changes are needed.
+Pass `-NativeModelDir` to install from an existing export without downloading.
+Run `teamy-tts sapi install` again after an update to select the new adapter;
+restart applications that already loaded the old DLL.
 
 To install the legacy backend, run
 `.\update.ps1 -Backend libtorch -LibTorchRoot 'C:\path\to\libtorch'`.

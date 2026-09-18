@@ -13,6 +13,11 @@ fn main() {
     println!("cargo:rerun-if-changed=native/kernels");
     println!("cargo:rerun-if-changed=native/build.rs");
     println!("cargo:rerun-if-changed=native/Cargo.toml");
+    println!("cargo:rerun-if-changed=ipc/src");
+    println!("cargo:rerun-if-changed=ipc/Cargo.toml");
+    println!("cargo:rerun-if-changed=sapi/src");
+    println!("cargo:rerun-if-changed=sapi/Cargo.toml");
+    println!("cargo:rerun-if-changed=assets");
     add_source_fingerprint();
     add_exe_resources();
     add_windows_cuda_link_anchor();
@@ -62,6 +67,11 @@ fn add_source_fingerprint() {
         std::path::Path::new("native/kernels"),
         std::path::Path::new("native/build.rs"),
         std::path::Path::new("native/Cargo.toml"),
+        std::path::Path::new("ipc/src"),
+        std::path::Path::new("ipc/Cargo.toml"),
+        std::path::Path::new("sapi/src"),
+        std::path::Path::new("sapi/Cargo.toml"),
+        std::path::Path::new("assets"),
     ] {
         collect_files(root, &mut files);
     }

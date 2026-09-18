@@ -1,0 +1,20 @@
+{
+  "archive_bytes": 217051750,
+  "archive_sha256": "d8131f6d8cbab59329ef57c053ffb62dd0429ec41255c29e1fb0c04c418e2e37",
+  "files": {
+    "frontend.tsv": {
+      "bytes": 2545288,
+      "sha256": "2e229f9322839623f02a7f1bf0ce2b4f45ff56e67ebb32d27c3a069dcf4bcc69"
+    },
+    "manifest.json": {
+      "bytes": 427,
+      "sha256": "d16915e6bf11b7bf264b798e21a895b9f2acf03f8c3a61df2c7dfa6d4c05ea7a"
+    },
+    "weights.safetensors": {
+      "bytes": 232620740,
+      "sha256": "f3ab504f0fb9f360c05d8ffd044cdea3f1ca00666fd51f8762031e3baf77b87b"
+    }
+  },
+  "sample_rate": 22050,
+  "schema": "teamy-glados-native-v1"
+}

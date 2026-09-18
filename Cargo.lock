@@ -2450,12 +2450,32 @@ dependencies = [
  "tch",
  "teamy-cancellation",
  "teamy-glados-native",
+ "teamy-tts-ipc",
+ "teamy-tts-sapi",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "tracing-tracy",
  "windows",
  "zip 6.0.0",
+]
+
+[[package]]
+name = "teamy-tts-ipc"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "windows",
+]
+
+[[package]]
+name = "teamy-tts-sapi"
+version = "0.1.0"
+dependencies = [
+ "teamy-tts-ipc",
+ "windows",
+ "windows-core",
 ]
 
 [[package]]

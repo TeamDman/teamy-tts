@@ -1,16 +1,20 @@
-# The object key is content-addressed, so a changed archive creates a new
-# immutable object instead of silently replacing the old one.
+# Retain this release when adding future archives; a key change on this resource
+# would otherwise delete the old object.
 resource "aws_s3_object" "models_archive" {
   provider = aws.r2
 
   bucket        = cloudflare_r2_bucket.models.name
   key           = local.models_object_key
-  source        = "../../models.zip"
+  source        = local.models_archive_source
   source_hash   = local.models_archive_sha256
   content_type  = "application/zip"
   cache_control = "public, max-age=31536000, immutable"
 
   metadata = {
     sha256 = local.models_archive_sha256
+  }
+
+  lifecycle {
+    prevent_destroy = true
   }
 }

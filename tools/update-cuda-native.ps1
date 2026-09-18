@@ -56,13 +56,13 @@ if ([string]::IsNullOrWhiteSpace($NativeModelDir)) {
         }
     }
 }
-if ([string]::IsNullOrWhiteSpace($NativeModelDir)) {
-    throw 'Pass -NativeModelDir with the exported weights.safetensors and frontend.tsv for the first native install. See native/README.md.'
-}
-$modelSource = (Resolve-Path -LiteralPath $NativeModelDir).Path
-foreach ($name in @('weights.safetensors', 'frontend.tsv')) {
-    if (-not (Test-Path -LiteralPath (Join-Path $modelSource $name) -PathType Leaf)) {
-        throw "Required native model artifact is missing: $name"
+$modelSource = $null
+if (-not [string]::IsNullOrWhiteSpace($NativeModelDir)) {
+    $modelSource = (Resolve-Path -LiteralPath $NativeModelDir).Path
+    foreach ($name in @('weights.safetensors', 'frontend.tsv')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $modelSource $name) -PathType Leaf)) {
+            throw "Required native model artifact is missing: $name"
+        }
     }
 }
 
@@ -98,6 +98,12 @@ try {
             Copy-Item -LiteralPath $entry.Value -Destination $destination -Force
         }
     }
+    if ($null -eq $modelSource) {
+        $acquiredJson = & $executable --output-format json model acquire-prepared Teamy
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to acquire the verified safetensors model bundle.' }
+        $acquired = ($acquiredJson -join "`n") | ConvertFrom-Json
+        $modelSource = $acquired.prepared_dir
+    }
     $null = New-Item -ItemType Directory -Force -Path $modelTarget
     foreach ($name in @('weights.safetensors', 'frontend.tsv', 'manifest.json')) {
         $source = Join-Path $modelSource $name
@@ -109,6 +115,21 @@ try {
     }
     & $executable config set --backend cuda-native --native-model-dir $modelTarget
     if ($LASTEXITCODE -ne 0) { throw 'Failed to configure the installed native backend.' }
+
+    & cargo build --manifest-path (Join-Path $repoRoot 'sapi/Cargo.toml') --release --locked
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to build the SAPI adapter.' }
+    $sapiBuildRoot = if ($env:CARGO_TARGET_DIR) { [IO.Path]::GetFullPath($env:CARGO_TARGET_DIR) } else { Join-Path $repoRoot 'sapi/target' }
+    $sapiDll = Join-Path $sapiBuildRoot 'release/teamy_tts_sapi.dll'
+    $sapiHash = (Get-FileHash -LiteralPath $sapiDll -Algorithm SHA256).Hash.ToLowerInvariant()
+    $sapiDir = Join-Path $installRoot "share/teamy-tts/sapi/$sapiHash"
+    $null = New-Item -ItemType Directory -Force -Path $sapiDir
+    $sapiTarget = Join-Path $sapiDir 'teamy_tts_sapi.dll'
+    if (-not (Test-Path -LiteralPath $sapiTarget)) {
+        Copy-Item -LiteralPath $sapiDll -Destination $sapiTarget
+    } elseif ((Get-FileHash -LiteralPath $sapiTarget -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sapiHash) {
+        throw 'Installed versioned SAPI DLL failed its hash check.'
+    }
+    [IO.File]::WriteAllText((Join-Path $installRoot 'share/teamy-tts/sapi/current.txt'), $sapiTarget)
 
     # Check the installed loader with only Windows system directories on PATH.
     # Temporarily clear inference overrides so the durable install is what runs.
@@ -136,6 +157,8 @@ try {
     Write-Output "Installed CUDA-native teamy-tts at $executable"
     Write-Output "Native model: $modelTarget"
     Write-Output "Runtime DLLs: $($runtimeFiles.Count); isolated deep doctor passed."
+    Write-Output "SAPI adapter: $sapiTarget"
+    Write-Output 'To register or update the selectable Windows voice, run teamy-tts sapi install from an administrator terminal. This preserves the system default voice.'
 } finally {
     $env:CUDA_PATH = $savedCudaPath
     $env:PATH = $savedPath

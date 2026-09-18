@@ -344,7 +344,7 @@ fn check_native_model(checks: &mut Vec<DoctorCheck>) -> bool {
                 "model.native-artifacts",
                 "The native model directory is unavailable",
                 error.to_string(),
-                "Export with native/tools/export_model.py and set TEAMY_TTS_NATIVE_MODEL_DIR",
+                "Run teamy-tts model acquire-prepared Teamy, or configure an existing native export",
             ));
             false
         }
@@ -648,6 +648,7 @@ async fn check_model_servers(
         let expected_size = match endpoint.artifact {
             "raw-model-archive" => model.archive_size_bytes,
             "native-bundle" => model.native_bundle_size_bytes,
+            "cuda-native-bundle" => crate::cuda_bundle::catalog().map_or(0, |c| c.archive_bytes),
             _ => 0,
         };
         let check_id = format!(

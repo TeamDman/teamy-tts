@@ -1,3 +1,3 @@
 locals {
-  models_archive_sha256 = filesha256("../../models.zip")
+  models_archive_sha256 = filesha256(local.models_archive_source)
 }

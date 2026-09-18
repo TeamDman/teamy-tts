@@ -55,6 +55,10 @@ pub fn find_model(id: &str) -> Option<ModelDefinition> {
 /// The user-facing model and installation state report.
 #[derive(Clone, Debug, Facet)]
 pub struct ModelReport {
+    pub runtime_format: String,
+    pub cuda_bundle_sha256: String,
+    pub cuda_bundle_size_bytes: u64,
+    pub cuda_prepared_dir: String,
     pub id: String,
     pub display_name: String,
     pub description: String,
@@ -101,7 +105,33 @@ pub fn report_for(model: ModelDefinition) -> eyre::Result<ModelReport> {
         "not-acquired"
     };
 
+    let cuda = crate::cuda_bundle::catalog()?;
+    let cuda_prepared = crate::cuda_bundle::installed_path()?;
+    #[cfg(feature = "cuda-native")]
+    let status = {
+        let _legacy_status = status;
+        if crate::config::effective_native_model_dir()?.is_some_and(|p| {
+            p.join("weights.safetensors").is_file() && p.join("frontend.tsv").is_file()
+        }) {
+            "cuda-native-configured"
+        } else if cuda_prepared.is_dir() {
+            "cuda-native-prepared"
+        } else if crate::cuda_bundle::archive_path()?.is_file() {
+            "cuda-native-archive-present"
+        } else {
+            "not-acquired"
+        }
+    };
     Ok(ModelReport {
+        runtime_format: if cfg!(feature = "cuda-native") {
+            "cuda-native"
+        } else {
+            "tch-native"
+        }
+        .into(),
+        cuda_bundle_sha256: cuda.archive_sha256,
+        cuda_bundle_size_bytes: cuda.archive_bytes,
+        cuda_prepared_dir: cuda_prepared.display().to_string(),
         id: model.id.to_string(),
         display_name: model.display_name.to_string(),
         description: model.description.to_string(),

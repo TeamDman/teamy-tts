@@ -2,10 +2,10 @@
 
 This configuration creates the `teamy-tts-models` R2 bucket, enables its
 Cloudflare-managed public development URL, and publishes the repository's
-`models.zip` and the generated native bundle ZIP as immutable,
+`models.zip`, the legacy TorchScript bundle, and the CUDA safetensors ZIP as immutable,
 SHA-256-addressed objects.
 
-Terraform exposes the two concrete public object URLs as outputs. Those
+Terraform exposes the three concrete public object URLs as outputs. Those
 outputs are intentionally used to bake the Teamy source defaults into the Rust
 application after the managed domain has been created.
 
@@ -65,12 +65,28 @@ After applying, capture the URLs that the application will use:
 ```powershell
 terraform output -raw teamy_raw_source_url
 terraform output -raw teamy_native_source_url
+terraform output -raw teamy_cuda_source_url
 ```
 
-The object keys contain their SHA-256. Build the native bundle first with
-`tools/package-native-bundle.ps1`; Terraform expects it at
-`artifacts/teamy-tts-glados-new-native-bundle.zip`. An independent
-HEAD/download verification should still be recorded as the publication
-receipt. The managed `r2.dev` endpoint is intended for development and is
-rate-limited; use a Cloudflare custom domain before treating this as a
-production distribution endpoint.
+Each upload's source and hash use the same local path. The legacy `.pt` ZIP
+defaults to `artifacts/teamy-tts-glados-new-tch-native-bundle.zip`; the CUDA ZIP
+defaults to `artifacts/teamy-tts-glados-native-v1.zip`. Archive source variables
+allow another local path without changing which file supplies the hash.
+
+Build the CUDA package with `python tools/package-cuda-bundle.py --help` and
+the known validated export. It contains only FP32 safetensors, frontend data
+and a runtime manifest. Its checked-in catalog pins the exact size, archive
+hash and individual file hashes; Terraform rejects a mismatched upload.
+
+The historical `native/glados/ab663a68...` object contains the original `.bpk`
+bundle. A Terraform `moved` block transfers its state to
+`native_bundle_historical`, preserving its key and bytes. The corrected
+TorchScript bundle and CUDA bundle use separate new resources. Existing
+objects have `prevent_destroy`; review a new release plan before changing a
+pinned resource. Do not replace an old key with different model bytes.
+
+Inspect a saved plan before applying. This migration should create two model
+objects, move the historical state address, and delete or replace nothing.
+Record an independent anonymous full download and SHA-256 check, plus access
+checks for existing URLs. The first version uses the existing managed `r2.dev`
+endpoint. A custom domain remains an optional later infrastructure change.
