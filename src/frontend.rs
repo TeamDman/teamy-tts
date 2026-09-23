@@ -176,6 +176,14 @@ impl GladosFrontend {
                 }
             }
         }
+        if tokens.is_empty() {
+            bail!("phoneme input did not contain a supported base symbol");
+        }
+        // The acoustic model needs at least two input tokens. A single phone
+        // from a short VAD window is a complete utterance, so terminate it.
+        if tokens.len() == 1 {
+            tokens.push(self.symbol_to_id[&'.']);
+        }
         Ok(tokens)
     }
 
@@ -710,6 +718,20 @@ mod tests {
         let frontend = GladosFrontend::from_tsv_contents("").unwrap();
         assert!(frontend.tokenize_phonemes("a̴").is_err());
         assert!(frontend.tokenize_phonemes("a̧").is_err());
+    }
+
+    #[test]
+    fn single_phone_window_gets_a_sentence_stop() {
+        let frontend = GladosFrontend::from_tsv_contents("").unwrap();
+        assert_eq!(
+            frontend.tokenize_phonemes("u").unwrap(),
+            vec![frontend.symbol_to_id[&'u'], frontend.symbol_to_id[&'.']]
+        );
+        assert_eq!(
+            frontend.tokenize_phonemes("tʰ").unwrap(),
+            vec![frontend.symbol_to_id[&'t'], frontend.symbol_to_id[&'.']]
+        );
+        assert!(frontend.tokenize_phonemes("ʰ").is_err());
     }
 
     #[test]
