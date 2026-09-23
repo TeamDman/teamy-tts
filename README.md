@@ -90,6 +90,7 @@ teamy-tts --output-format json phonemize "The letter A"
 # Files are retained only when --output-dir is supplied.
 teamy-tts interactive
 teamy-tts interactive --volume 0
+teamy-tts interactive --speed 1.5
 
 # Produce JSON benchmark evidence without creating or playing output files.
 teamy-tts benchmark "Hello, friend" --warmups 2 --measurements 5
@@ -114,6 +115,13 @@ Ctrl-Z followed by Enter. Redirected stdin exits when its input reaches EOF.
 applied to the generated PCM samples before WAV encoding and playback, so
 `--volume 0` still exercises synthesis, WAV construction, and synchronous
 playback while producing silence.
+
+`say`, `write`, and `interactive` accept `--speed <multiplier>`; for example,
+`--speed 1.5` speaks about 1.5 times as fast, and `--speed 2` about twice as
+fast. The model shortens phoneme durations before generating audio, so the
+sample rate and voice pitch are not changed by faster playback. This is an
+approximate speaking-rate control, not an exact time stretch. The former
+`--alpha` spelling remains available as an alias.
 
 The `--phonemes` flag bypasses English normalization and the neural
 phonemizer. Its input must use symbols from GLaDOS's IPA-like inventory, for

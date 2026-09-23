@@ -36,10 +36,10 @@ pub struct SayArgs {
     #[arbitrary(default)]
     pub voice: Option<String>,
 
-    /// Duration/pitch scaling factor. Defaults to `1.0`.
-    #[facet(args::named)]
+    /// Speaking speed multiplier (1.5 = about 1.5x, 2 = about 2x). Defaults to 1.0.
+    #[facet(args::named, args::alias = "alpha")]
     #[arbitrary(default)]
-    pub alpha: Option<f32>,
+    pub speed: Option<f32>,
 
     /// Playback/output amplitude multiplier in the inclusive range 0.0..=1.0.
     /// Defaults to `1.0`.
@@ -87,10 +87,10 @@ pub struct WriteArgs {
     #[arbitrary(default)]
     pub voice: Option<String>,
 
-    /// Duration/pitch scaling factor. Defaults to 1.0.
-    #[facet(args::named)]
+    /// Speaking speed multiplier (1.5 = about 1.5x, 2 = about 2x). Defaults to 1.0.
+    #[facet(args::named, args::alias = "alpha")]
     #[arbitrary(default)]
-    pub alpha: Option<f32>,
+    pub speed: Option<f32>,
 
     /// Inference backend compiled into this executable: auto, libtorch or cuda-native.
     #[facet(args::named)]
@@ -133,9 +133,9 @@ impl SayArgs {
             self.output_dir.as_deref(),
             self.output.as_deref(),
         )?;
-        let alpha = self.alpha.unwrap_or(1.0);
+        let speed = validate_speed(self.speed.unwrap_or(1.0))?;
         let (_model, runtime) = load_runtime(model_id, self.backend.as_deref())?;
-        let wav = synthesize_to_wav(&runtime, &self.text, self.phonemes, &voice, alpha, volume)?;
+        let wav = synthesize_to_wav(&runtime, &self.text, self.phonemes, &voice, speed, volume)?;
         if let Some(output) = output.as_deref() {
             write_wav_output(&runtime, output, &wav)?;
             emit_output_path(output)?;
@@ -173,9 +173,9 @@ impl WriteArgs {
         let Some(output) = output else {
             bail!("write requires --output <path> or --output-dir <directory>");
         };
-        let alpha = self.alpha.unwrap_or(1.0);
+        let speed = validate_speed(self.speed.unwrap_or(1.0))?;
         let (_model, runtime) = load_runtime(model_id, self.backend.as_deref())?;
-        let wav = synthesize_to_wav(&runtime, &self.text, self.phonemes, &voice, alpha, 1.0)?;
+        let wav = synthesize_to_wav(&runtime, &self.text, self.phonemes, &voice, speed, 1.0)?;
         write_wav_output(&runtime, &output, &wav)?;
         emit_output_path(&output)
     }
@@ -255,6 +255,13 @@ fn validate_volume(volume: f32) -> Result<f32> {
         bail!("--volume must be a finite number in the range 0.0..=1.0");
     }
     Ok(volume)
+}
+
+pub(crate) fn validate_speed(speed: f32) -> Result<f32> {
+    if !speed.is_finite() || speed <= 0.0 {
+        bail!("--speed must be a finite positive number (for example, 1.5 or 2)");
+    }
+    Ok(speed)
 }
 
 fn scale_samples(mut samples: Vec<f32>, volume: f32) -> Vec<f32> {
@@ -433,5 +440,15 @@ mod tests {
         let _ = validate_volume(-0.01).unwrap_err();
         let _ = validate_volume(1.01).unwrap_err();
         let _ = validate_volume(f32::NAN).unwrap_err();
+    }
+
+    #[test]
+    fn speed_must_be_finite_and_positive() {
+        assert_eq!(validate_speed(1.5).unwrap(), 1.5);
+        assert_eq!(validate_speed(2.0).unwrap(), 2.0);
+        assert!(validate_speed(0.0).is_err());
+        assert!(validate_speed(-1.0).is_err());
+        assert!(validate_speed(f32::INFINITY).is_err());
+        assert!(validate_speed(f32::NAN).is_err());
     }
 }

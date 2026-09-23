@@ -9,6 +9,7 @@ use crate::cli::say::emit_output_path;
 use crate::cli::say::load_runtime;
 use crate::cli::say::resolve_output_path;
 use crate::cli::say::synthesize_to_wav;
+use crate::cli::say::validate_speed;
 use crate::cli::say::write_wav_output;
 use arbitrary::Arbitrary;
 use eyre::Result;
@@ -42,10 +43,10 @@ pub struct InteractiveArgs {
     #[arbitrary(default)]
     pub voice: Option<String>,
 
-    /// Duration/pitch scaling factor. Defaults to 1.0.
-    #[facet(args::named)]
+    /// Speaking speed multiplier (1.5 = about 1.5x, 2 = about 2x). Defaults to 1.0.
+    #[facet(args::named, args::alias = "alpha")]
     #[arbitrary(default)]
-    pub alpha: Option<f32>,
+    pub speed: Option<f32>,
 
     /// Playback/output amplitude multiplier in the inclusive range 0.0..=1.0.
     /// Defaults to 1.0.
@@ -78,7 +79,7 @@ impl InteractiveArgs {
     pub async fn invoke(self, cancellation_token: CancellationToken) -> Result<CliOutput> {
         let model_id = self.model.as_deref().unwrap_or("glados");
         let voice = self.voice.unwrap_or_else(|| "p2".to_string());
-        let alpha = self.alpha.unwrap_or(1.0);
+        let speed = validate_speed(self.speed.unwrap_or(1.0))?;
         let volume = self.volume.unwrap_or(1.0);
         let output_dir = self.output_dir.as_deref();
         let (_model, runtime) = load_runtime(model_id, self.backend.as_deref())?;
@@ -123,7 +124,7 @@ impl InteractiveArgs {
             }
 
             let output = resolve_output_path(text, output_dir, None)?;
-            let wav = synthesize_to_wav(&runtime, text, self.phonemes, &voice, alpha, volume)?;
+            let wav = synthesize_to_wav(&runtime, text, self.phonemes, &voice, speed, volume)?;
             if let Some(output) = output.as_deref() {
                 write_wav_output(&runtime, output, &wav)?;
                 emit_output_path(output)?;
