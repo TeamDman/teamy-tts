@@ -95,7 +95,14 @@ try {
     foreach ($entry in $runtimeFiles.GetEnumerator()) {
         $destination = Join-Path $binDir $entry.Key
         if (-not [string]::Equals($entry.Value, $destination, [StringComparison]::OrdinalIgnoreCase)) {
-            Copy-Item -LiteralPath $entry.Value -Destination $destination -Force
+            # Windows can keep an installed CUDA DLL open while a resident TTS
+            # worker is running. Reusing identical bytes avoids a needless
+            # replacement that would fail with a sharing violation.
+            if (-not (Test-Path -LiteralPath $destination -PathType Leaf) -or
+                (Get-FileHash -LiteralPath $entry.Value -Algorithm SHA256).Hash -ne
+                    (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash) {
+                Copy-Item -LiteralPath $entry.Value -Destination $destination -Force
+            }
         }
     }
     if ($null -eq $modelSource) {
