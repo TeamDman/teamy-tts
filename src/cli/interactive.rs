@@ -58,7 +58,7 @@ pub struct InteractiveArgs {
     #[arbitrary(default)]
     pub backend: Option<String>,
 
-    /// Interpret each input line as `GLaDOS` IPA-like phoneme symbols.
+    /// Interpret each input line as IPA phones (PhoneticXeus modifiers are approximated).
     #[facet(args::named, args::alias = "phones", default)]
     #[arbitrary(default)]
     pub phonemes: bool,

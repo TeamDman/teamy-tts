@@ -140,11 +140,12 @@ impl GladosFrontend {
         Ok(phonemes)
     }
 
-    /// Validate and tokenize `GLaDOS`'s IPA-like phoneme symbols directly.
+    /// Tokenize IPA-like phonemes directly using the `GLaDOS` symbol table.
     ///
-    /// Unlike [`Self::tokenize`], this does not normalize text, append
-    /// punctuation, or invoke the neural phonemizer. Whitespace is treated as
-    /// the symbol-space separator used by the upstream model.
+    /// PhoneticXeus modifiers absent from that table are approximated or
+    /// discarded. This keeps live phone output usable without changing the
+    /// model's trained token IDs. Whitespace becomes the upstream space symbol;
+    /// punctuation is not appended and no neural phonemizer runs.
     ///
     /// # Errors
     ///
@@ -156,8 +157,24 @@ impl GladosFrontend {
         }
         let mut tokens = Vec::new();
         for symbol in phonemes.chars() {
-            let symbol = if symbol.is_whitespace() { ' ' } else { symbol };
-            self.push_symbol(symbol, &mut tokens)?;
+            match symbol {
+                // PhoneticXeus's velarized l has a direct GLaDOS equivalent.
+                '̴' if tokens.last() == self.symbol_to_id.get(&'l') => {
+                    *tokens.last_mut().expect("checked above") = self.symbol_to_id[&'ɫ'];
+                }
+                // Its decomposed c-cedilla also has a direct equivalent.
+                '̧' if tokens.last() == self.symbol_to_id.get(&'c') => {
+                    *tokens.last_mut().expect("checked above") = self.symbol_to_id[&'ç'];
+                }
+                // The remaining PhoneticXeus modifiers have no trained
+                // GLaDOS token. Preserve the base phone and lose the modifier.
+                '̞' | 'ʲ' | '̤' | 'ˀ' | '̝' | 'ʰ' | 'ˠ' | 'ʷ' | 'ˤ' | 'ʼ' | '̠' | '̰' | '̈' | '̻' | '̆'
+                | '̺' | '̪' => {}
+                other => {
+                    let symbol = if other.is_whitespace() { ' ' } else { other };
+                    self.push_symbol(symbol, &mut tokens)?;
+                }
+            }
         }
         Ok(tokens)
     }
@@ -658,6 +675,41 @@ mod tests {
             tokens,
             vec![frontend.symbol_to_id[&'e'], frontend.symbol_to_id[&'ɪ']]
         );
+    }
+
+    #[test]
+    fn phoneticxeus_samples_use_glados_symbols() {
+        let frontend = GladosFrontend::from_tsv_contents("").unwrap();
+        for (source, expected) in [
+            ("hɛl̴oʊ", "hɛɫoʊ"),
+            ("tʰʃɛkwəntʰu", "tʃɛkwəntu"),
+            ("əkædəmitʰwɛ̃ntitʰwɛ̃ntisɪks", "əkædəmitwɛ̃ntitwɛ̃ntisɪks"),
+            ("çː", "çː"),
+        ] {
+            assert_eq!(
+                frontend.tokenize_phonemes(source).unwrap(),
+                frontend.tokenize_phonemes(expected).unwrap(),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn phoneticxeus_modifier_inventory_is_accepted() {
+        let frontend = GladosFrontend::from_tsv_contents("").unwrap();
+        let source = "œ̞ ʔʲ o̤ kˀ e̝ ɡʰ ʃˠ dʷ rˤ cʼ t̠ ŋ̰ l̴ ɛ̈ ç s̻ ɤ̆ s̺ l̪";
+        let expected = "œ ʔ o k e ɡ ʃ d r c t ŋ ɫ ɛ ç s ɤ s l";
+        assert_eq!(
+            frontend.tokenize_phonemes(source).unwrap(),
+            frontend.tokenize_phonemes(expected).unwrap()
+        );
+    }
+
+    #[test]
+    fn unsupported_modifier_outside_known_sequence_still_fails() {
+        let frontend = GladosFrontend::from_tsv_contents("").unwrap();
+        assert!(frontend.tokenize_phonemes("a̴").is_err());
+        assert!(frontend.tokenize_phonemes("a̧").is_err());
     }
 
     #[test]
