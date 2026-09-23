@@ -53,7 +53,7 @@ pub struct SayArgs {
     pub backend: Option<String>,
 
     /// Interpret the positional input as `GLaDOS` IPA-like phoneme symbols.
-    #[facet(args::named, default)]
+    #[facet(args::named, args::alias = "phones", default)]
     #[arbitrary(default)]
     pub phonemes: bool,
 
@@ -98,7 +98,7 @@ pub struct WriteArgs {
     pub backend: Option<String>,
 
     /// Interpret the positional input as `GLaDOS` IPA-like phoneme symbols.
-    #[facet(args::named, default)]
+    #[facet(args::named, args::alias = "phones", default)]
     #[arbitrary(default)]
     pub phonemes: bool,
 
